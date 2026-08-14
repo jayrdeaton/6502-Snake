@@ -60,24 +60,16 @@ DrawTitleScreen:
   ldx #19
   jsr DrawDigitBuf
 
-  lda #<MoveHelpMsg
-  sta WORK_PTR
-  lda #>MoveHelpMsg
-  sta WORK_PTR+1
-  lda #14
-  ldx #1
-  jsr DrawString
-
   lda #<StartPromptMsg
   sta WORK_PTR
   lda #>StartPromptMsg
   sta WORK_PTR+1
-  lda #15
-  ldx #2
+  lda #14
+  ldx #8
   jmp DrawString
 
 ; -----------------------------------------------------------------------------
-; WaitForStart — title-screen loop. Polls for fire/space, seeds RNG_STATE
+; WaitForStart — title-screen loop. Polls for the A button, seeds RNG_STATE
 ; from elapsed loop iterations (reaction-time entropy) plus the RTC clock
 ; if fitted.
 ; -----------------------------------------------------------------------------
@@ -189,6 +181,7 @@ NewGame:
 ; Tick — advance the snake one grid step
 ; -----------------------------------------------------------------------------
 Tick:
+  jsr Sound_ServiceSilence
   lda DIRECTION
   eor #1
   cmp NEXT_DIR
@@ -650,12 +643,12 @@ DrawGameOverOverlay:
   jsr DrawDigitBuf
 
 @afterHighLine:
-  lda #<PressFireMsg
+  lda #<PressAMsg
   sta WORK_PTR
-  lda #>PressFireMsg
+  lda #>PressAMsg
   sta WORK_PTR+1
   lda #(BOX_TOP+5)
-  ldx #11
+  ldx #12
   jmp DrawString
 
 ; DrawPauseMessage — draw the paused text at row 23
@@ -665,14 +658,14 @@ DrawPauseMessage:
   lda #>PauseMsg
   sta WORK_PTR+1
   lda #23
-  ldx #6
+  ldx #7
   jmp DrawString
 
 ScoreLabel:
   .byte "SCORE:", $00
 
 PauseMsg:
-  .byte "PAUSED - PRESS FIRE", $00
+  .byte "PAUSED - PRESS A", $00
 
 GameOverTitleMsg:
   .byte "GAME OVER", $00
@@ -686,8 +679,8 @@ NewHighMsg:
 HighLabelMsg:
   .byte "HIGH:  ", $00   ; extra space vs "SCORE: " so the digits line up
 
-PressFireMsg:
-  .byte "PRESS FIRE", $00
+PressAMsg:
+  .byte "PRESS A", $00
 
 TitleText:
   .byte "S N A K E", $00
@@ -695,8 +688,5 @@ TitleText:
 HighScoreLabel:
   .byte "HIGH SCORE: ", $00
 
-MoveHelpMsg:
-  .byte "MOVE: WASD / ARROWS / JOYSTICK", $00
-
 StartPromptMsg:
-  .byte "PRESS SPACE OR FIRE TO START", $00
+  .byte "PRESS A TO START", $00

@@ -42,9 +42,7 @@ OFFSET_HI       := $4B
 RETRY_CNT       := $4C   ; bounded retry counter for food respawn
 SCAN_TMP        := $4D   ; scratch loop counter (used by init/drawing loops)
 DIGIT_BUF       := $4E   ; 5 bytes, $4E-$52: ASCII decimal digits of score
-LAST_KEY        := $53   ; unused scratch (reserved)
 JOY_STATE       := $54   ; last raw ReadJoystick1 byte
-KB_CHAR         := $55   ; last Chrin byte
 WORK_PTR        := $56   ; 2 bytes, $56-$57: general-purpose indirect pointer
 OLD_TAIL_X      := $58   ; scratch: tail cell about to be vacated this tick
 OLD_TAIL_Y      := $59
@@ -65,6 +63,23 @@ SCAN_TMP2       := $64   ; scratch: second loop counter for nested row/col loops
 HIGH_SCORE_LO   := $65   ; best score this power-on session (persisted to RTC
 HIGH_SCORE_HI   := $66   ; NVRAM when that card is fitted; session-only otherwise)
 NEW_HIGH_FLAG   := $67   ; set by GameOver when this round beat HIGH_SCORE
+SOUND_PENDING   := $68   ; nonzero while a SidPlayNote is ringing and still
+                          ; needs its deferred SidSilence (see sound.asm)
+KB_DIR          := $69   ; DrainKeyboardCombined output: last WASD/arrow
+                          ; direction seen this poll's drain, or KB_DIR_NONE
+KB_FIRE         := $6A   ; DrainKeyboardCombined output: 1 if space was seen
+                          ; this poll's drain, else 0
+; --- Required by 6502-Lib/core/input.asm at assemble time only ---
+; The shared library assembles PollJoy2/DrainKeyboardSplit unconditionally
+; (they're not behind an .ifdef), so their target zero-page bytes must
+; resolve even though this single-player, single-port-combined game never
+; calls those two routines. Unused at runtime; present only so the shared,
+; unmodified library file assembles.
+JOY_STATE2      := $6B   ; unused: PollJoy2's output byte
+KB_DIR_P1       := $6C   ; unused: DrainKeyboardSplit's P1 output byte
+KB_DIR_P2       := $6D   ; unused: DrainKeyboardSplit's P2 output byte
+KB_FIRE_P1      := $6E   ; unused: DrainKeyboardSplit's P1 fire-key output
+KB_FIRE_P2      := $6F   ; unused: DrainKeyboardSplit's P2 fire-key output
 
 ; --- RAM arrays (outside zero page; a cartridge never uses BASIC/PRG/CF RAM) ---
 SEGMENTS_X      := $0800   ; 256 bytes — ring buffer of segment columns

@@ -8,8 +8,10 @@ Current file: Snake.asm
 000000r 1               ;   A classic grid-based Snake game for the AC6502 family, built as a
 000000r 1               ;   standalone ROM cartridge (6502-CRT template). Boots directly, no BASIC.
 000000r 1               ;
-000000r 1               ;   Controls: WASD, arrow keys, or joystick 1 to move. Space or fire to
-000000r 1               ;   start / restart, and to pause / resume during play.
+000000r 1               ;   Controls: joystick, either port, to move, with WASD or arrow keys as a
+000000r 1               ;   fallback when the joystick shows no direction (e.g. no GPIO card
+000000r 1               ;   fitted). The A button (or space) to start/restart, and to pause/resume
+000000r 1               ;   during play.
 000000r 1               ; =============================================================================
 000000r 1               
 000000r 1               .setcpu "65C02"
@@ -939,9 +941,7 @@ Current file: Snake.asm
 000000r 2               RETRY_CNT       := $4C   ; bounded retry counter for food respawn
 000000r 2               SCAN_TMP        := $4D   ; scratch loop counter (used by init/drawing loops)
 000000r 2               DIGIT_BUF       := $4E   ; 5 bytes, $4E-$52: ASCII decimal digits of score
-000000r 2               LAST_KEY        := $53   ; unused scratch (reserved)
 000000r 2               JOY_STATE       := $54   ; last raw ReadJoystick1 byte
-000000r 2               KB_CHAR         := $55   ; last Chrin byte
 000000r 2               WORK_PTR        := $56   ; 2 bytes, $56-$57: general-purpose indirect pointer
 000000r 2               OLD_TAIL_X      := $58   ; scratch: tail cell about to be vacated this tick
 000000r 2               OLD_TAIL_Y      := $59
@@ -962,6 +962,23 @@ Current file: Snake.asm
 000000r 2               HIGH_SCORE_LO   := $65   ; best score this power-on session (persisted to RTC
 000000r 2               HIGH_SCORE_HI   := $66   ; NVRAM when that card is fitted; session-only otherwise)
 000000r 2               NEW_HIGH_FLAG   := $67   ; set by GameOver when this round beat HIGH_SCORE
+000000r 2               SOUND_PENDING   := $68   ; nonzero while a SidPlayNote is ringing and still
+000000r 2                                         ; needs its deferred SidSilence (see sound.asm)
+000000r 2               KB_DIR          := $69   ; DrainKeyboardCombined output: last WASD/arrow
+000000r 2                                         ; direction seen this poll's drain, or KB_DIR_NONE
+000000r 2               KB_FIRE         := $6A   ; DrainKeyboardCombined output: 1 if space was seen
+000000r 2                                         ; this poll's drain, else 0
+000000r 2               ; --- Required by 6502-Lib/core/input.asm at assemble time only ---
+000000r 2               ; The shared library assembles PollJoy2/DrainKeyboardSplit unconditionally
+000000r 2               ; (they're not behind an .ifdef), so their target zero-page bytes must
+000000r 2               ; resolve even though this single-player, single-port-combined game never
+000000r 2               ; calls those two routines. Unused at runtime; present only so the shared,
+000000r 2               ; unmodified library file assembles.
+000000r 2               JOY_STATE2      := $6B   ; unused: PollJoy2's output byte
+000000r 2               KB_DIR_P1       := $6C   ; unused: DrainKeyboardSplit's P1 output byte
+000000r 2               KB_DIR_P2       := $6D   ; unused: DrainKeyboardSplit's P2 output byte
+000000r 2               KB_FIRE_P1      := $6E   ; unused: DrainKeyboardSplit's P1 fire-key output
+000000r 2               KB_FIRE_P2      := $6F   ; unused: DrainKeyboardSplit's P2 fire-key output
 000000r 2               
 000000r 2               ; --- RAM arrays (outside zero page; a cartridge never uses BASIC/PRG/CF RAM) ---
 000000r 2               SEGMENTS_X      := $0800   ; 256 bytes — ring buffer of segment columns
@@ -1629,985 +1646,1288 @@ Current file: Snake.asm
 000305r 2               
 000305r 1               .include "src/input.asm"
 000305r 2               ; =============================================================================
-000305r 2               ;   input.asm — joystick + keyboard polling
+000305r 2               ;   input.asm — joystick-first polling, keyboard fallback (WASD/arrows)
 000305r 2               ; =============================================================================
-000305r 2               ;   ReadJoystick1 does NOT check HW_PRESENT (6502.inc explicitly warns a
-000305r 2               ;   floating bus reads as meaningless), so we gate on HW_GPIO ourselves.
-000305r 2               ;   Bit layout (active low):  7=R 6=L 5=D 4=U 3=Y 2=X 1=B 0=A
+000305r 2               ;   Movement and the A button come from the joystick when one is present and
+000305r 2               ;   being used; WASD or arrow keys act as a fallback for a single player
+000305r 2               ;   when the joystick shows no direction this poll (including when no GPIO
+000305r 2               ;   card is fitted at all). Joystick and keyboard are never blended within
+000305r 2               ;   the same poll: if the joystick shows any direction, that direction wins
+000305r 2               ;   outright and the keyboard isn't even consulted for direction. The fire
+000305r 2               ;   button is the one exception — joystick A held OR keyboard space seen
+000305r 2               ;   this drain, either sets START_PRESSED, independent of which source won
+000305r 2               ;   the direction for this poll.
+000305r 2               ;
+000305r 2               ;   Both joystick ports are still read and combined via the shared
+000305r 2               ;   PollJoyCombined (whichever is plugged in and moved/pressed drives the
+000305r 2               ;   game), so it doesn't matter which port a single-player controller is
+000305r 2               ;   plugged into. This is single-player, so DrainKeyboardCombined is used
+000305r 2               ;   (not the two-player split): WASD or arrow keys, whichever was pressed
+000305r 2               ;   most recently in the drain, wins.
+000305r 2               ;
+000305r 2               ;   Joystick bit layout and button naming (A/B/X/Y, not generic "fire") and
+000305r 2               ;   the keyboard scancode constants are now defined by the shared library
+000305r 2               ;   (see ../../6502-Lib/core/input.asm) rather than duplicated here.
 000305r 2               ; =============================================================================
 000305r 2               
-000305r 2               JOY_FIRE  = %00000001
-000305r 2               JOY_UP    = %00010000
-000305r 2               JOY_DOWN  = %00100000
-000305r 2               JOY_LEFT  = %01000000
-000305r 2               JOY_RIGHT = %10000000
-000305r 2               
-000305r 2               ; Arrow keys arrive as control codes, not 'W'/'A'/'S'/'D' — confirmed against
-000305r 2               ; the emulator's USB-HID-to-ASCII keyboard tables (KeyboardEncoderAttachment
-000305r 2               ; and KeyboardMatrixAttachment both agree on these four).
-000305r 2               KEY_UP    = $1E
-000305r 2               KEY_DOWN  = $1F
-000305r 2               KEY_LEFT  = $1C
-000305r 2               KEY_RIGHT = $1D
-000305r 2               
-000305r 2               .segment "CART"
-000305r 2               
-000305r 2               ; -----------------------------------------------------------------------------
-000305r 2               ; PollInput — sample joystick (if present) and drain the keyboard buffer,
-000305r 2               ; updating NEXT_DIR and START_PRESSED. Safe to call every frame regardless
-000305r 2               ; of GAME_STATE.
-000305r 2               ; -----------------------------------------------------------------------------
-000305r 2               PollInput:
-000305r 2  64 60          stz START_PRESSED
-000307r 2               
-000307r 2  AD 0D 03       lda HW_PRESENT
-00030Ar 2  29 20          and #HW_GPIO
-00030Cr 2  F0 37          beq @kbOnly
-00030Er 2               
-00030Er 2  20 48 A0       jsr ReadJoystick1
-000311r 2  85 54          sta JOY_STATE
-000313r 2               
-000313r 2  A5 54          lda JOY_STATE
-000315r 2  29 10          and #JOY_UP
-000317r 2  D0 04          bne @jNotUp
-000319r 2  A9 00          lda #DIR_UP
-00031Br 2  85 3C          sta NEXT_DIR
-00031Dr 2               @jNotUp:
-00031Dr 2  A5 54          lda JOY_STATE
-00031Fr 2  29 20          and #JOY_DOWN
-000321r 2  D0 04          bne @jNotDown
-000323r 2  A9 01          lda #DIR_DOWN
-000325r 2  85 3C          sta NEXT_DIR
-000327r 2               @jNotDown:
-000327r 2  A5 54          lda JOY_STATE
-000329r 2  29 40          and #JOY_LEFT
-00032Br 2  D0 04          bne @jNotLeft
-00032Dr 2  A9 02          lda #DIR_LEFT
-00032Fr 2  85 3C          sta NEXT_DIR
-000331r 2               @jNotLeft:
-000331r 2  A5 54          lda JOY_STATE
-000333r 2  29 80          and #JOY_RIGHT
-000335r 2  D0 04          bne @jNotRight
-000337r 2  A9 03          lda #DIR_RIGHT
-000339r 2  85 3C          sta NEXT_DIR
-00033Br 2               @jNotRight:
-00033Br 2  A5 54          lda JOY_STATE
-00033Dr 2  29 01          and #JOY_FIRE
-00033Fr 2  D0 04          bne @jNotFire
-000341r 2  A9 01          lda #1
-000343r 2  85 60          sta START_PRESSED
-000345r 2               @jNotFire:
-000345r 2               
-000345r 2               @kbOnly:
-000345r 2               @drain:
-000345r 2  20 03 A0       jsr Chrin
-000348r 2  90 51          bcc @doneDrain
-00034Ar 2  85 55          sta KB_CHAR
-00034Cr 2               
-00034Cr 2  C9 57          cmp #'W'
-00034Er 2  F0 04          beq @setUp
-000350r 2  C9 1E          cmp #KEY_UP
-000352r 2  D0 07          bne @notW
-000354r 2               @setUp:
-000354r 2  A9 00          lda #DIR_UP
-000356r 2  85 3C          sta NEXT_DIR
-000358r 2  4C rr rr       jmp @drain
-00035Br 2               @notW:
-00035Br 2  A5 55          lda KB_CHAR
-00035Dr 2  C9 53          cmp #'S'
-00035Fr 2  F0 04          beq @setDown
-000361r 2  C9 1F          cmp #KEY_DOWN
-000363r 2  D0 07          bne @notS
-000365r 2               @setDown:
-000365r 2  A9 01          lda #DIR_DOWN
-000367r 2  85 3C          sta NEXT_DIR
-000369r 2  4C rr rr       jmp @drain
-00036Cr 2               @notS:
-00036Cr 2  A5 55          lda KB_CHAR
-00036Er 2  C9 41          cmp #'A'
-000370r 2  F0 04          beq @setLeft
-000372r 2  C9 1C          cmp #KEY_LEFT
-000374r 2  D0 07          bne @notA
-000376r 2               @setLeft:
-000376r 2  A9 02          lda #DIR_LEFT
-000378r 2  85 3C          sta NEXT_DIR
-00037Ar 2  4C rr rr       jmp @drain
-00037Dr 2               @notA:
-00037Dr 2  A5 55          lda KB_CHAR
-00037Fr 2  C9 44          cmp #'D'
-000381r 2  F0 04          beq @setRight
-000383r 2  C9 1D          cmp #KEY_RIGHT
-000385r 2  D0 07          bne @notD
-000387r 2               @setRight:
-000387r 2  A9 03          lda #DIR_RIGHT
-000389r 2  85 3C          sta NEXT_DIR
-00038Br 2  4C rr rr       jmp @drain
-00038Er 2               @notD:
-00038Er 2  A5 55          lda KB_CHAR
-000390r 2  C9 20          cmp #' '
-000392r 2  D0 B1          bne @drain
-000394r 2  A9 01          lda #1
-000396r 2  85 60          sta START_PRESSED
-000398r 2  4C rr rr       jmp @drain
-00039Br 2               
-00039Br 2               @doneDrain:
-00039Br 2                 ; Edge-detect fire/space: FIRE_EDGE is set only on the poll it first goes
-00039Br 2                 ; down, so a held button (in particular a held joystick fire, which reads
-00039Br 2                 ; as continuously down every poll) doesn't repeatedly re-trigger
-00039Br 2                 ; pause/resume/restart on every subsequent tick.
-00039Br 2  64 62          stz FIRE_EDGE
-00039Dr 2  A5 61          lda PREV_FIRE
-00039Fr 2  D0 06          bne @noEdge
-0003A1r 2  A5 60          lda START_PRESSED
-0003A3r 2  F0 02          beq @noEdge
-0003A5r 2  E6 62          inc FIRE_EDGE
-0003A7r 2               @noEdge:
-0003A7r 2  A5 60          lda START_PRESSED
-0003A9r 2  85 61          sta PREV_FIRE
-0003ABr 2  60             rts
-0003ACr 2               
-0003ACr 1               .include "src/sound.asm"
-0003ACr 2               ; =============================================================================
-0003ACr 2               ;   sound.asm — eat / death sound feedback
-0003ACr 2               ; =============================================================================
-0003ACr 2               ;   Beep is guaranteed safe (self-no-ops with no SID card) but blocks the
-0003ACr 2               ;   CPU for its full ~300ms tone duration — fine for a one-off like
-0003ACr 2               ;   GameOver, but audible every apple pickup as a freeze twice as long as
-0003ACr 2               ;   a game tick. Sound_Eat instead drives SidPlayNote/SidSilence directly:
-0003ACr 2               ;   both are plain register writes with no delay loop, so they return to
-0003ACr 2               ;   the caller immediately. The SID's own envelope hardware keeps ringing
-0003ACr 2               ;   the note out in real time after that — gating off right away just
-0003ACr 2               ;   starts the (already short, full-sustain) release phase, it doesn't
-0003ACr 2               ;   cut the sound short. Also self-no-ops with no SID fitted.
-0003ACr 2               ; =============================================================================
-0003ACr 2               
-0003ACr 2               .segment "CART"
-0003ACr 2               
-0003ACr 2               Sound_Eat:
-0003ACr 2  A9 00          lda #0
-0003AEr 2  A2 69          ldx #<SID_NOTE_E6
-0003B0r 2  A0 56          ldy #>SID_NOTE_E6
-0003B2r 2  20 33 A0       jsr SidPlayNote
-0003B5r 2  20 36 A0       jsr SidSilence
-0003B8r 2  60             rts
-0003B9r 2               
-0003B9r 2               Sound_Death:
-0003B9r 2  20 30 A0       jsr Beep
-0003BCr 2  20 30 A0       jsr Beep
-0003BFr 2  60             rts
-0003C0r 2               
-0003C0r 1               .include "src/game.asm"
-0003C0r 2               ; =============================================================================
-0003C0r 2               ;   game.asm — Snake state machine: title wait, tick logic, HUD, game over
-0003C0r 2               ; =============================================================================
-0003C0r 2               
-0003C0r 2               .segment "CART"
-0003C0r 2               
-0003C0r 2               ; -----------------------------------------------------------------------------
-0003C0r 2               ; DrawTitleScreen — draw the title screen in Graphics I, using the same
-0003C0r 2               ; tiles/palette as gameplay (called once at boot, before WaitForStart, on
-0003C0r 2               ; top of the border InitGraphicsI already drew). Every line's column is
-0003C0r 2               ; computed for exact centering in the 32-wide grid.
-0003C0r 2               ; -----------------------------------------------------------------------------
-0003C0r 2               DrawTitleScreen:
-0003C0r 2  A9 rr          lda #<TitleText
-0003C2r 2  85 56          sta WORK_PTR
-0003C4r 2  A9 rr          lda #>TitleText
-0003C6r 2  85 57          sta WORK_PTR+1
-0003C8r 2  A9 08          lda #8
-0003CAr 2  A2 0B          ldx #11
-0003CCr 2  20 rr rr       jsr DrawString
-0003CFr 2               
-0003CFr 2                 ; snake + apple decoration, row 10: the same tiles used in gameplay, so
-0003CFr 2                 ; the title screen reads as the same game, not a splash screen bolted
-0003CFr 2                 ; on top of it. "S N A K E" above (cols 11-19) is the point of
-0003CFr 2                 ; reference — the body underlines the whole word and runs a couple
-0003CFr 2                 ; cells past it on both ends, with the head chasing a nearby apple.
-0003CFr 2  A9 09          lda #9
-0003D1r 2  85 4D          sta SCAN_TMP
-0003D3r 2               @titleSnakeBody:
-0003D3r 2  A9 0A          lda #10
-0003D5r 2  A6 4D          ldx SCAN_TMP
-0003D7r 2  A0 88          ldy #TILE_BODY
-0003D9r 2  20 rr rr       jsr DrawTile
-0003DCr 2  E6 4D          inc SCAN_TMP
-0003DEr 2  A5 4D          lda SCAN_TMP
-0003E0r 2  C9 14          cmp #20
-0003E2r 2  D0 EF          bne @titleSnakeBody
-0003E4r 2               
-0003E4r 2  A9 0A          lda #10
-0003E6r 2  A2 14          ldx #20
-0003E8r 2  A0 80          ldy #TILE_HEAD
-0003EAr 2  20 rr rr       jsr DrawTile
-0003EDr 2               
-0003EDr 2  A9 0A          lda #10
-0003EFr 2  A2 16          ldx #22
-0003F1r 2  A0 90          ldy #TILE_FOOD
-0003F3r 2  20 rr rr       jsr DrawTile
-0003F6r 2               
-0003F6r 2  A9 rr          lda #<HighScoreLabel
-0003F8r 2  85 56          sta WORK_PTR
-0003FAr 2  A9 rr          lda #>HighScoreLabel
-0003FCr 2  85 57          sta WORK_PTR+1
-0003FEr 2  A9 0C          lda #12
-000400r 2  A2 07          ldx #7
-000402r 2  20 rr rr       jsr DrawString
-000405r 2  A5 65          lda HIGH_SCORE_LO
-000407r 2  A6 66          ldx HIGH_SCORE_HI
-000409r 2  20 rr rr       jsr ValueToDigits
-00040Cr 2  A9 0C          lda #12
-00040Er 2  A2 13          ldx #19
-000410r 2  20 rr rr       jsr DrawDigitBuf
-000413r 2               
-000413r 2  A9 rr          lda #<MoveHelpMsg
-000415r 2  85 56          sta WORK_PTR
-000417r 2  A9 rr          lda #>MoveHelpMsg
-000419r 2  85 57          sta WORK_PTR+1
-00041Br 2  A9 0E          lda #14
-00041Dr 2  A2 01          ldx #1
-00041Fr 2  20 rr rr       jsr DrawString
+000305r 2               .include "../../6502-Lib/core/input.asm"
+000305r 3               ; =============================================================================
+000305r 3               ;   input.asm — shared joystick-first, keyboard-fallback input primitives
+000305r 3               ; =============================================================================
+000305r 3               ; Caller contract:
+000305r 3               ; - Consuming project defines HW_PRESENT, HW_GPIO, ReadJoystick1,
+000305r 3               ;   ReadJoystick2, Chrin (all Kernal-provided) before including this file.
+000305r 3               ; - Consuming project defines its own DIR_UP/DIR_DOWN constants (and
+000305r 3               ;   DIR_LEFT/DIR_RIGHT, only if it's a 4-directional game) at whatever
+000305r 3               ;   numeric values it already uses — this file references them by name
+000305r 3               ;   only, so Snake/LightCycles' 0/1/2/3 and Pong's 1/2 both work unchanged.
+000305r 3               ; - Consuming project defines the zero-page output bytes each routine
+000305r 3               ;   below documents (JOY_STATE, JOY_STATE2, KB_DIR, KB_DIR_P1, KB_DIR_P2,
+000305r 3               ;   KB_FIRE, and — only if calling DrainKeyboardSplit — KB_FIRE_P1,
+000305r 3               ;   KB_FIRE_P2) before including this file, at whatever address is free.
+000305r 3               ;
+000305r 3               ; Exported routines:
+000305r 3               ; - PollJoyCombined      both ports AND-combined (single-player, either port)
+000305r 3               ; - PollJoy1 / PollJoy2  a single port, gated on HW_GPIO
+000305r 3               ; - DrainKeyboardCombined  single-player keyboard fallback (WASD or arrows)
+000305r 3               ; - DrainKeyboardSplit     two-player keyboard fallback (WASD=P1, arrows=P2)
+000305r 3               ;
+000305r 3               ; This file intentionally does NOT resolve a final NEXT_DIR/START_PRESSED —
+000305r 3               ; that composition (joystick-first priority, A-button-or-space, edge
+000305r 3               ; detection) is project-specific glue that stays in each game's own
+000305r 3               ; input.asm, since the exact target variables differ per game (NEXT_DIR vs
+000305r 3               ; NEXT_P1/NEXT_P2, single-player vs split). See docs/INPUT.md for the
+000305r 3               ; priority rule every caller should follow.
+000305r 3               ; =============================================================================
+000305r 3               
+000305r 3               ; --- Joystick bits (active-low on the wire: 0 = pressed) ---
+000305r 3               JOY_A     = %00000001
+000305r 3               JOY_B     = %00000010
+000305r 3               JOY_X     = %00000100
+000305r 3               JOY_Y     = %00001000
+000305r 3               JOY_UP    = %00010000
+000305r 3               JOY_DOWN  = %00100000
+000305r 3               JOY_LEFT  = %01000000
+000305r 3               JOY_RIGHT = %10000000
+000305r 3               
+000305r 3               ; --- Keyboard fallback scancodes ---
+000305r 3               ; Kernal delivers uppercase ASCII for letter keys; arrow keys are control
+000305r 3               ; codes, not printable characters.
+000305r 3               KEY_W           = 'W'
+000305r 3               KEY_A           = 'A'
+000305r 3               KEY_S           = 'S'
+000305r 3               KEY_D           = 'D'
+000305r 3               KEY_UP_ARROW    = $1E
+000305r 3               KEY_DOWN_ARROW  = $1F
+000305r 3               KEY_LEFT_ARROW  = $1C
+000305r 3               KEY_RIGHT_ARROW = $1D
+000305r 3               KEY_FIRE        = ' '     ; space bar: P1's fire fallback (thumb-reachable
+000305r 3                                          ; from WASD's resting position; also the
+000305r 3                                          ; traditional single-player shooter fire key)
+000305r 3               KEY_FIRE2       = $0D     ; enter/return (CHAR_CR): P2's fire fallback,
+000305r 3                                          ; sits right next to the arrow-key cluster on
+000305r 3                                          ; nearly every layout. Deliberately not a
+000305r 3                                          ; modifier key (Ctrl/Shift) -- Chrin is a plain
+000305r 3                                          ; character buffer, and modifier keys generally
+000305r 3                                          ; don't produce their own readable character,
+000305r 3                                          ; nor could left/right variants be told apart
+000305r 3                                          ; even if they did.
+000305r 3               
+000305r 3               KB_DIR_NONE = $FF          ; sentinel: no direction seen in this drain
+000305r 3               
+000305r 3               .segment "CART"
+000305r 3               
+000305r 3               ; -----------------------------------------------------------------------------
+000305r 3               ; PollJoyCombined — read both joystick ports and AND-combine them
+000305r 3               ; (active-low AND = logical OR of "pressed"), so either port drives a
+000305r 3               ; single-player game regardless of which one it's plugged into.
+000305r 3               ; Out: JOY_STATE = combined active-low byte, or $FF (idle) if no GPIO card.
+000305r 3               ; Clobbers: A
+000305r 3               ; -----------------------------------------------------------------------------
+000305r 3               PollJoyCombined:
+000305r 3  AD 0D 03       lda HW_PRESENT
+000308r 3  29 20          and #HW_GPIO
+00030Ar 3  D0 05          bne @haveGpio
+00030Cr 3  A9 FF          lda #$FF
+00030Er 3  85 54          sta JOY_STATE
+000310r 3  60             rts
+000311r 3               @haveGpio:
+000311r 3  20 48 A0       jsr ReadJoystick1
+000314r 3  85 54          sta JOY_STATE
+000316r 3  20 4B A0       jsr ReadJoystick2
+000319r 3  25 54          and JOY_STATE
+00031Br 3  85 54          sta JOY_STATE
+00031Dr 3  60             rts
+00031Er 3               
+00031Er 3               ; -----------------------------------------------------------------------------
+00031Er 3               ; PollJoy1 / PollJoy2 — read a single joystick port, gated on HW_GPIO
+00031Er 3               ; (ReadJoystick1/2 do not check hardware presence themselves — a floating
+00031Er 3               ; bus reads as meaningless data with no GPIO card fitted).
+00031Er 3               ; Out: JOY_STATE / JOY_STATE2, or $FF (idle) if no GPIO card.
+00031Er 3               ; Clobbers: A
+00031Er 3               ; -----------------------------------------------------------------------------
+00031Er 3               PollJoy1:
+00031Er 3  AD 0D 03       lda HW_PRESENT
+000321r 3  29 20          and #HW_GPIO
+000323r 3  D0 05          bne @haveGpio
+000325r 3  A9 FF          lda #$FF
+000327r 3  85 54          sta JOY_STATE
+000329r 3  60             rts
+00032Ar 3               @haveGpio:
+00032Ar 3  20 48 A0       jsr ReadJoystick1
+00032Dr 3  85 54          sta JOY_STATE
+00032Fr 3  60             rts
+000330r 3               
+000330r 3               PollJoy2:
+000330r 3  AD 0D 03       lda HW_PRESENT
+000333r 3  29 20          and #HW_GPIO
+000335r 3  D0 05          bne @haveGpio
+000337r 3  A9 FF          lda #$FF
+000339r 3  85 6B          sta JOY_STATE2
+00033Br 3  60             rts
+00033Cr 3               @haveGpio:
+00033Cr 3  20 4B A0       jsr ReadJoystick2
+00033Fr 3  85 6B          sta JOY_STATE2
+000341r 3  60             rts
+000342r 3               
+000342r 3               ; -----------------------------------------------------------------------------
+000342r 3               ; DrainKeyboardCombined — single-player keyboard fallback: WASD or arrow
+000342r 3               ; keys both work, whichever was pressed most recently in this call wins.
+000342r 3               ; Drains every pending Chrin character each call (not just one), so a
+000342r 3               ; burst typed between polls doesn't leave stale characters for next time.
+000342r 3               ; LEFT/RIGHT checks compile out entirely for a 2-directional caller that
+000342r 3               ; never defines DIR_LEFT/DIR_RIGHT (e.g. Pong).
+000342r 3               ; Out: KB_DIR = last recognized direction this call, or KB_DIR_NONE.
+000342r 3               ;      KB_FIRE = 1 if space or enter was seen this call, else 0. Both
+000342r 3               ;      fire keys work interchangeably here, matching how WASD and arrows
+000342r 3               ;      both work interchangeably for movement in this single-player case.
+000342r 3               ; Clobbers: A
+000342r 3               ; -----------------------------------------------------------------------------
+000342r 3               DrainKeyboardCombined:
+000342r 3  A9 FF          lda #KB_DIR_NONE
+000344r 3  85 69          sta KB_DIR
+000346r 3  64 6A          stz KB_FIRE
+000348r 3               @drain:
+000348r 3  20 03 A0       jsr Chrin
+00034Br 3  90 4B          bcc @done                 ; C=0 = no character waiting, buffer empty
+00034Dr 3                                            ; (Chrin signals this via carry, NOT via A=0 --
+00034Dr 3                                            ; A holds a character even when C=0 is possible,
+00034Dr 3                                            ; so checking A for zero here would loop forever)
+00034Dr 3               
+00034Dr 3  C9 57          cmp #KEY_W
+00034Fr 3  F0 2B          beq @setUp
+000351r 3  C9 1E          cmp #KEY_UP_ARROW
+000353r 3  F0 27          beq @setUp
+000355r 3  C9 53          cmp #KEY_S
+000357r 3  F0 2A          beq @setDown
+000359r 3  C9 1F          cmp #KEY_DOWN_ARROW
+00035Br 3  F0 26          beq @setDown
+00035Dr 3               .ifdef DIR_LEFT
+00035Dr 3  C9 41          cmp #KEY_A
+00035Fr 3  F0 29          beq @setLeft
+000361r 3  C9 1C          cmp #KEY_LEFT_ARROW
+000363r 3  F0 25          beq @setLeft
+000365r 3               .endif
+000365r 3               .ifdef DIR_RIGHT
+000365r 3  C9 44          cmp #KEY_D
+000367r 3  F0 28          beq @setRight
+000369r 3  C9 1D          cmp #KEY_RIGHT_ARROW
+00036Br 3  F0 24          beq @setRight
+00036Dr 3               .endif
+00036Dr 3  C9 20          cmp #KEY_FIRE
+00036Fr 3  F0 04          beq @setFire
+000371r 3  C9 0D          cmp #KEY_FIRE2
+000373r 3  D0 D3          bne @drain
+000375r 3               @setFire:
+000375r 3  A9 01          lda #1
+000377r 3  85 6A          sta KB_FIRE
+000379r 3  4C rr rr       jmp @drain
+00037Cr 3               
+00037Cr 3               @setUp:
+00037Cr 3  A9 00          lda #DIR_UP
+00037Er 3  85 69          sta KB_DIR
+000380r 3  4C rr rr       jmp @drain
+000383r 3               @setDown:
+000383r 3  A9 01          lda #DIR_DOWN
+000385r 3  85 69          sta KB_DIR
+000387r 3  4C rr rr       jmp @drain
+00038Ar 3               .ifdef DIR_LEFT
+00038Ar 3               @setLeft:
+00038Ar 3  A9 02          lda #DIR_LEFT
+00038Cr 3  85 69          sta KB_DIR
+00038Er 3  4C rr rr       jmp @drain
+000391r 3               .endif
+000391r 3               .ifdef DIR_RIGHT
+000391r 3               @setRight:
+000391r 3  A9 03          lda #DIR_RIGHT
+000393r 3  85 69          sta KB_DIR
+000395r 3  4C rr rr       jmp @drain
+000398r 3               .endif
+000398r 3               
+000398r 3               @done:
+000398r 3  60             rts
+000399r 3               
+000399r 3               ; -----------------------------------------------------------------------------
+000399r 3               ; DrainKeyboardSplit — two-player keyboard fallback: WASD drives P1 only,
+000399r 3               ; arrow keys drive P2 only, so one player's keypresses can never move the
+000399r 3               ; other's paddle/cycle. Drains every pending Chrin character ONCE per
+000399r 3               ; call, checking both keysets in the same pass (so both players' presses
+000399r 3               ; in the same drain window are captured, not just whichever keyset was
+000399r 3               ; checked first). LEFT/RIGHT checks compile out for a 2-directional caller
+000399r 3               ; that never defines DIR_LEFT/DIR_RIGHT (e.g. Pong).
+000399r 3               ; Out: KB_DIR_P1 = last WASD direction seen this call, or KB_DIR_NONE.
+000399r 3               ;      KB_DIR_P2 = last arrow-key direction seen this call, or KB_DIR_NONE.
+000399r 3               ;      KB_FIRE = 1 if EITHER fire key was seen this call, else 0 — kept
+000399r 3               ;      for callers with only one shared fire/start/pause action (every
+000399r 3               ;      game as of this writing: "did anyone press it" is all that
+000399r 3               ;      matters, mirroring how either joystick's A button already
+000399r 3               ;      triggers the same shared action today).
+000399r 3               ;      KB_FIRE_P1 = 1 if space (P1's fire key) was seen this call, else 0.
+000399r 3               ;      KB_FIRE_P2 = 1 if enter (P2's fire key) was seen this call, else 0.
+000399r 3               ;      A future game with independent per-player fire (e.g. a two-player
+000399r 3               ;      shooter) reads KB_FIRE_P1/KB_FIRE_P2 instead of the combined flag.
+000399r 3               ; Clobbers: A
+000399r 3               ; -----------------------------------------------------------------------------
+000399r 3               DrainKeyboardSplit:
+000399r 3  A9 FF          lda #KB_DIR_NONE
+00039Br 3  85 6C          sta KB_DIR_P1
+00039Dr 3  85 6D          sta KB_DIR_P2
+00039Fr 3  64 6A          stz KB_FIRE
+0003A1r 3  64 6E          stz KB_FIRE_P1
+0003A3r 3  64 6F          stz KB_FIRE_P2
+0003A5r 3               @drain:
+0003A5r 3  20 03 A0       jsr Chrin
+0003A8r 3  90 72          bcc @done                 ; C=0 = no character waiting, buffer empty
+0003AAr 3                                            ; (Chrin signals this via carry, NOT via A=0)
+0003AAr 3               
+0003AAr 3  C9 57          cmp #KEY_W
+0003ACr 3  F0 36          beq @p1Up
+0003AEr 3  C9 53          cmp #KEY_S
+0003B0r 3  F0 39          beq @p1Down
+0003B2r 3               .ifdef DIR_LEFT
+0003B2r 3  C9 41          cmp #KEY_A
+0003B4r 3  F0 3C          beq @p1Left
+0003B6r 3               .endif
+0003B6r 3               .ifdef DIR_RIGHT
+0003B6r 3  C9 44          cmp #KEY_D
+0003B8r 3  F0 3F          beq @p1Right
+0003BAr 3               .endif
+0003BAr 3  C9 1E          cmp #KEY_UP_ARROW
+0003BCr 3  F0 42          beq @p2Up
+0003BEr 3  C9 1F          cmp #KEY_DOWN_ARROW
+0003C0r 3  F0 45          beq @p2Down
+0003C2r 3               .ifdef DIR_LEFT
+0003C2r 3  C9 1C          cmp #KEY_LEFT_ARROW
+0003C4r 3  F0 48          beq @p2Left
+0003C6r 3               .endif
+0003C6r 3               .ifdef DIR_RIGHT
+0003C6r 3  C9 1D          cmp #KEY_RIGHT_ARROW
+0003C8r 3  F0 4B          beq @p2Right
+0003CAr 3               .endif
+0003CAr 3  C9 20          cmp #KEY_FIRE
+0003CCr 3  F0 0D          beq @p1Fire
+0003CEr 3  C9 0D          cmp #KEY_FIRE2
+0003D0r 3  D0 D3          bne @drain
+0003D2r 3  A9 01          lda #1
+0003D4r 3  85 6A          sta KB_FIRE
+0003D6r 3  85 6F          sta KB_FIRE_P2
+0003D8r 3  4C rr rr       jmp @drain
+0003DBr 3               @p1Fire:
+0003DBr 3  A9 01          lda #1
+0003DDr 3  85 6A          sta KB_FIRE
+0003DFr 3  85 6E          sta KB_FIRE_P1
+0003E1r 3  4C rr rr       jmp @drain
+0003E4r 3               
+0003E4r 3               @p1Up:
+0003E4r 3  A9 00          lda #DIR_UP
+0003E6r 3  85 6C          sta KB_DIR_P1
+0003E8r 3  4C rr rr       jmp @drain
+0003EBr 3               @p1Down:
+0003EBr 3  A9 01          lda #DIR_DOWN
+0003EDr 3  85 6C          sta KB_DIR_P1
+0003EFr 3  4C rr rr       jmp @drain
+0003F2r 3               .ifdef DIR_LEFT
+0003F2r 3               @p1Left:
+0003F2r 3  A9 02          lda #DIR_LEFT
+0003F4r 3  85 6C          sta KB_DIR_P1
+0003F6r 3  4C rr rr       jmp @drain
+0003F9r 3               .endif
+0003F9r 3               .ifdef DIR_RIGHT
+0003F9r 3               @p1Right:
+0003F9r 3  A9 03          lda #DIR_RIGHT
+0003FBr 3  85 6C          sta KB_DIR_P1
+0003FDr 3  4C rr rr       jmp @drain
+000400r 3               .endif
+000400r 3               @p2Up:
+000400r 3  A9 00          lda #DIR_UP
+000402r 3  85 6D          sta KB_DIR_P2
+000404r 3  4C rr rr       jmp @drain
+000407r 3               @p2Down:
+000407r 3  A9 01          lda #DIR_DOWN
+000409r 3  85 6D          sta KB_DIR_P2
+00040Br 3  4C rr rr       jmp @drain
+00040Er 3               .ifdef DIR_LEFT
+00040Er 3               @p2Left:
+00040Er 3  A9 02          lda #DIR_LEFT
+000410r 3  85 6D          sta KB_DIR_P2
+000412r 3  4C rr rr       jmp @drain
+000415r 3               .endif
+000415r 3               .ifdef DIR_RIGHT
+000415r 3               @p2Right:
+000415r 3  A9 03          lda #DIR_RIGHT
+000417r 3  85 6D          sta KB_DIR_P2
+000419r 3  4C rr rr       jmp @drain
+00041Cr 3               .endif
+00041Cr 3               
+00041Cr 3               @done:
+00041Cr 3  60             rts
+00041Dr 3               
+00041Dr 2               
+00041Dr 2               .segment "CART"
+00041Dr 2               
+00041Dr 2               ; -----------------------------------------------------------------------------
+00041Dr 2               ; PollInput — sample joystick 1 and 2 (combined) for movement and the A
+00041Dr 2               ; button; fall back to the keyboard (WASD/arrows/space) only when the
+00041Dr 2               ; joystick shows no direction this poll. Safe to call every frame regardless
+00041Dr 2               ; of GAME_STATE.
+00041Dr 2               ; -----------------------------------------------------------------------------
+00041Dr 2               PollInput:
+00041Dr 2  64 60          stz START_PRESSED
+00041Fr 2               
+00041Fr 2  20 rr rr       jsr PollJoyCombined       ; JOY_STATE = combined active-low byte, or $FF if
+000422r 2                                            ; no GPIO card / nothing pressed on either port
 000422r 2               
-000422r 2  A9 rr          lda #<StartPromptMsg
-000424r 2  85 56          sta WORK_PTR
-000426r 2  A9 rr          lda #>StartPromptMsg
-000428r 2  85 57          sta WORK_PTR+1
-00042Ar 2  A9 0F          lda #15
-00042Cr 2  A2 02          ldx #2
-00042Er 2  4C rr rr       jmp DrawString
-000431r 2               
-000431r 2               ; -----------------------------------------------------------------------------
-000431r 2               ; WaitForStart — title-screen loop. Polls for fire/space, seeds RNG_STATE
-000431r 2               ; from elapsed loop iterations (reaction-time entropy) plus the RTC clock
-000431r 2               ; if fitted.
-000431r 2               ; -----------------------------------------------------------------------------
-000431r 2               WaitForStart:
-000431r 2  64 46          stz RNG_STATE
-000433r 2               @loop:
-000433r 2  E6 46          inc RNG_STATE
-000435r 2  20 rr rr       jsr PollInput
-000438r 2  A5 60          lda START_PRESSED
-00043Ar 2  D0 03          bne @done
-00043Cr 2  4C rr rr       jmp @loop
-00043Fr 2               @done:
-00043Fr 2  AD 0D 03       lda HW_PRESENT
-000442r 2  29 04          and #HW_RTC
-000444r 2  F0 11          beq @noRtc
-000446r 2  20 5A A0       jsr RtcReadTime          ; A=hours, X=minutes, Y=seconds
-000449r 2  45 46          eor RNG_STATE
-00044Br 2  85 46          sta RNG_STATE
-00044Dr 2  8A             txa
-00044Er 2  45 46          eor RNG_STATE
-000450r 2  85 46          sta RNG_STATE
-000452r 2  98             tya
-000453r 2  45 46          eor RNG_STATE
-000455r 2  85 46          sta RNG_STATE
-000457r 2               @noRtc:
-000457r 2  A5 46          lda RNG_STATE
-000459r 2  D0 04          bne @nonzero
-00045Br 2  A9 2A          lda #$2A
-00045Dr 2  85 46          sta RNG_STATE
-00045Fr 2               @nonzero:
-00045Fr 2  60             rts
-000460r 2               
-000460r 2               ; -----------------------------------------------------------------------------
-000460r 2               ; NewGame — reset the playfield and snake for a fresh game (also used to
-000460r 2               ; restart from GAMEOVER; safe to call repeatedly since it fully redraws the
-000460r 2               ; occupancy grid and border rather than tracking incremental cleanup).
-000460r 2               ; -----------------------------------------------------------------------------
-000460r 2               NewGame:
-000460r 2  20 rr rr       jsr ClearScreen          ; wipe any leftover snake/food/message from a
-000463r 2                                           ; previous game before rebuilding the board
-000463r 2  20 rr rr       jsr InitOccupancy
-000466r 2  20 rr rr       jsr DrawBorder
-000469r 2               
-000469r 2  A9 0F          lda #15
-00046Br 2  8D 00 08       sta SEGMENTS_X
-00046Er 2  A9 0C          lda #12
-000470r 2  8D 00 09       sta SEGMENTS_Y
-000473r 2  A9 10          lda #16
-000475r 2  8D 01 08       sta SEGMENTS_X+1
-000478r 2  A9 0C          lda #12
-00047Ar 2  8D 01 09       sta SEGMENTS_Y+1
-00047Dr 2  A9 11          lda #17
-00047Fr 2  8D 02 08       sta SEGMENTS_X+2
-000482r 2  A9 0C          lda #12
-000484r 2  8D 02 09       sta SEGMENTS_Y+2
-000487r 2               
-000487r 2  A9 00          lda #0
-000489r 2  85 40          sta TAIL_IDX
-00048Br 2  A9 02          lda #2
-00048Dr 2  85 3F          sta HEAD_IDX
-00048Fr 2  A9 03          lda #3
-000491r 2  85 41          sta SNAKE_LEN
-000493r 2  A9 11          lda #17
-000495r 2  85 3D          sta HEAD_X
-000497r 2  A9 0C          lda #12
-000499r 2  85 3E          sta HEAD_Y
-00049Br 2  A9 03          lda #DIR_RIGHT
-00049Dr 2  85 3B          sta DIRECTION
-00049Fr 2  85 3C          sta NEXT_DIR
-0004A1r 2  A9 00          lda #0
-0004A3r 2  85 44          sta SCORE_LO
-0004A5r 2  85 45          sta SCORE_HI
-0004A7r 2               
-0004A7r 2  A9 0C          lda #12
-0004A9r 2  A2 0F          ldx #15
-0004ABr 2  A0 01          ldy #1
-0004ADr 2  20 rr rr       jsr OccupancySet
-0004B0r 2  A9 0C          lda #12
-0004B2r 2  A2 10          ldx #16
-0004B4r 2  A0 01          ldy #1
-0004B6r 2  20 rr rr       jsr OccupancySet
-0004B9r 2  A9 0C          lda #12
-0004BBr 2  A2 11          ldx #17
-0004BDr 2  A0 01          ldy #1
-0004BFr 2  20 rr rr       jsr OccupancySet
-0004C2r 2               
-0004C2r 2  A9 0C          lda #12
-0004C4r 2  A2 0F          ldx #15
-0004C6r 2  A0 88          ldy #TILE_BODY
-0004C8r 2  20 rr rr       jsr DrawTile
-0004CBr 2  A9 0C          lda #12
-0004CDr 2  A2 10          ldx #16
-0004CFr 2  A0 88          ldy #TILE_BODY
-0004D1r 2  20 rr rr       jsr DrawTile
-0004D4r 2  A9 0C          lda #12
-0004D6r 2  A2 11          ldx #17
-0004D8r 2  A0 80          ldy #TILE_HEAD
-0004DAr 2  20 rr rr       jsr DrawTile
-0004DDr 2               
-0004DDr 2  20 rr rr       jsr RespawnFood
-0004E0r 2  20 rr rr       jsr DrawHudLabel
-0004E3r 2  20 rr rr       jsr UpdateHud
-0004E6r 2               
-0004E6r 2  A9 01          lda #STATE_PLAYING
-0004E8r 2  85 3A          sta GAME_STATE
-0004EAr 2  60             rts
-0004EBr 2               
-0004EBr 2               ; -----------------------------------------------------------------------------
-0004EBr 2               ; Tick — advance the snake one grid step
-0004EBr 2               ; -----------------------------------------------------------------------------
-0004EBr 2               Tick:
-0004EBr 2  A5 3B          lda DIRECTION
-0004EDr 2  49 01          eor #1
-0004EFr 2  C5 3C          cmp NEXT_DIR
-0004F1r 2  F0 04          beq @skipDirUpdate
-0004F3r 2  A5 3C          lda NEXT_DIR
-0004F5r 2  85 3B          sta DIRECTION
-0004F7r 2               @skipDirUpdate:
-0004F7r 2               
-0004F7r 2  A5 3D          lda HEAD_X
-0004F9r 2  85 47          sta NEW_HEAD_X
-0004FBr 2  A5 3E          lda HEAD_Y
-0004FDr 2  85 48          sta NEW_HEAD_Y
-0004FFr 2               
-0004FFr 2  A5 3B          lda DIRECTION
-000501r 2  C9 00          cmp #DIR_UP
-000503r 2  D0 05          bne @notUp
-000505r 2  C6 48          dec NEW_HEAD_Y
-000507r 2  4C rr rr       jmp @dirDone
-00050Ar 2               @notUp:
-00050Ar 2  C9 01          cmp #DIR_DOWN
-00050Cr 2  D0 05          bne @notDown
-00050Er 2  E6 48          inc NEW_HEAD_Y
-000510r 2  4C rr rr       jmp @dirDone
-000513r 2               @notDown:
-000513r 2  C9 02          cmp #DIR_LEFT
-000515r 2  D0 05          bne @notLeft
-000517r 2  C6 47          dec NEW_HEAD_X
-000519r 2  4C rr rr       jmp @dirDone
-00051Cr 2               @notLeft:
-00051Cr 2  E6 47          inc NEW_HEAD_X
-00051Er 2               @dirDone:
-00051Er 2               
-00051Er 2  A5 47          lda NEW_HEAD_X
-000520r 2  C5 42          cmp FOOD_X
-000522r 2  D0 0D          bne @notFood
-000524r 2  A5 48          lda NEW_HEAD_Y
-000526r 2  C5 43          cmp FOOD_Y
-000528r 2  D0 07          bne @notFood
-00052Ar 2  A9 01          lda #1
-00052Cr 2  85 49          sta GROW_FLAG
-00052Er 2  4C rr rr       jmp @foodCheckDone
-000531r 2               @notFood:
-000531r 2  A9 00          lda #0
-000533r 2  85 49          sta GROW_FLAG
-000535r 2               @foodCheckDone:
-000535r 2               
-000535r 2  A5 48          lda NEW_HEAD_Y
-000537r 2  A6 47          ldx NEW_HEAD_X
-000539r 2  20 rr rr       jsr OccupancyGet
-00053Cr 2  C9 00          cmp #0
-00053Er 2  F0 1E          beq @moveOk
-000540r 2  C9 03          cmp #3
-000542r 2  F0 17          beq @collision
-000544r 2               
-000544r 2  A5 49          lda GROW_FLAG
-000546r 2  D0 13          bne @collision
-000548r 2               
-000548r 2  A4 40          ldy TAIL_IDX
-00054Ar 2  B9 00 08       lda SEGMENTS_X,y
-00054Dr 2  C5 47          cmp NEW_HEAD_X
-00054Fr 2  D0 0A          bne @collision
-000551r 2  B9 00 09       lda SEGMENTS_Y,y
-000554r 2  C5 48          cmp NEW_HEAD_Y
-000556r 2  D0 03          bne @collision
-000558r 2  4C rr rr       jmp @moveOk
-00055Br 2               
-00055Br 2               @collision:
-00055Br 2  4C rr rr       jmp GameOver
-00055Er 2               
-00055Er 2               @moveOk:
-00055Er 2  A5 3E          lda HEAD_Y
-000560r 2  A6 3D          ldx HEAD_X
-000562r 2  A0 88          ldy #TILE_BODY
-000564r 2  20 rr rr       jsr DrawTile
-000567r 2               
-000567r 2  E6 3F          inc HEAD_IDX
-000569r 2  A4 3F          ldy HEAD_IDX
-00056Br 2  A5 47          lda NEW_HEAD_X
-00056Dr 2  99 00 08       sta SEGMENTS_X,y
-000570r 2  A5 48          lda NEW_HEAD_Y
-000572r 2  99 00 09       sta SEGMENTS_Y,y
-000575r 2               
-000575r 2  A5 47          lda NEW_HEAD_X
-000577r 2  85 3D          sta HEAD_X
-000579r 2  A5 48          lda NEW_HEAD_Y
-00057Br 2  85 3E          sta HEAD_Y
-00057Dr 2               
-00057Dr 2  A5 3E          lda HEAD_Y
-00057Fr 2  A6 3D          ldx HEAD_X
-000581r 2  A0 01          ldy #1
-000583r 2  20 rr rr       jsr OccupancySet
-000586r 2               
-000586r 2  A5 3E          lda HEAD_Y
-000588r 2  A6 3D          ldx HEAD_X
-00058Ar 2  A0 80          ldy #TILE_HEAD
-00058Cr 2  20 rr rr       jsr DrawTile
-00058Fr 2               
-00058Fr 2  A5 49          lda GROW_FLAG
-000591r 2  F0 1B          beq @noGrow
-000593r 2               
-000593r 2  E6 41          inc SNAKE_LEN
-000595r 2  18             clc
-000596r 2  A5 44          lda SCORE_LO
-000598r 2  69 0A          adc #10
-00059Ar 2  85 44          sta SCORE_LO
-00059Cr 2  A5 45          lda SCORE_HI
-00059Er 2  69 00          adc #0
-0005A0r 2  85 45          sta SCORE_HI
-0005A2r 2  20 rr rr       jsr UpdateHud
-0005A5r 2  20 rr rr       jsr Sound_Eat
-0005A8r 2  20 rr rr       jsr RespawnFood
-0005ABr 2  4C rr rr       jmp @tickDone
-0005AEr 2               
-0005AEr 2               @noGrow:
-0005AEr 2  A4 40          ldy TAIL_IDX
-0005B0r 2  B9 00 08       lda SEGMENTS_X,y
-0005B3r 2  85 58          sta OLD_TAIL_X
-0005B5r 2  B9 00 09       lda SEGMENTS_Y,y
-0005B8r 2  85 59          sta OLD_TAIL_Y
-0005BAr 2               
-0005BAr 2  A5 59          lda OLD_TAIL_Y
-0005BCr 2  A6 58          ldx OLD_TAIL_X
-0005BEr 2  A0 00          ldy #0
-0005C0r 2  20 rr rr       jsr OccupancySet
-0005C3r 2               
-0005C3r 2  A5 59          lda OLD_TAIL_Y
-0005C5r 2  A6 58          ldx OLD_TAIL_X
-0005C7r 2  20 rr rr       jsr EraseTile
+000422r 2  A5 54          lda JOY_STATE
+000424r 2  29 10          and #JOY_UP
+000426r 2  D0 04          bne @jNotUp
+000428r 2  A9 00          lda #DIR_UP
+00042Ar 2  85 3C          sta NEXT_DIR
+00042Cr 2               @jNotUp:
+00042Cr 2  A5 54          lda JOY_STATE
+00042Er 2  29 20          and #JOY_DOWN
+000430r 2  D0 04          bne @jNotDown
+000432r 2  A9 01          lda #DIR_DOWN
+000434r 2  85 3C          sta NEXT_DIR
+000436r 2               @jNotDown:
+000436r 2  A5 54          lda JOY_STATE
+000438r 2  29 40          and #JOY_LEFT
+00043Ar 2  D0 04          bne @jNotLeft
+00043Cr 2  A9 02          lda #DIR_LEFT
+00043Er 2  85 3C          sta NEXT_DIR
+000440r 2               @jNotLeft:
+000440r 2  A5 54          lda JOY_STATE
+000442r 2  29 80          and #JOY_RIGHT
+000444r 2  D0 04          bne @jNotRight
+000446r 2  A9 03          lda #DIR_RIGHT
+000448r 2  85 3C          sta NEXT_DIR
+00044Ar 2               @jNotRight:
+00044Ar 2  A5 54          lda JOY_STATE
+00044Cr 2  29 01          and #JOY_A
+00044Er 2  D0 04          bne @jNotA
+000450r 2  A9 01          lda #1
+000452r 2  85 60          sta START_PRESSED
+000454r 2               @jNotA:
+000454r 2               
+000454r 2                 ; Keyboard fallback: only consulted when the joystick showed NO direction
+000454r 2                 ; this poll (all four direction bits high in JOY_STATE) — joystick always
+000454r 2                 ; wins outright when it shows anything, per the priority rule above.
+000454r 2  A5 54          lda JOY_STATE
+000456r 2  29 F0          and #(JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT)
+000458r 2  C9 F0          cmp #(JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT)
+00045Ar 2  D0 13          bne @doneDrain             ; some direction bit is low -> joystick wins
+00045Cr 2               
+00045Cr 2  20 rr rr       jsr DrainKeyboardCombined
+00045Fr 2               
+00045Fr 2  A5 69          lda KB_DIR
+000461r 2  C9 FF          cmp #KB_DIR_NONE
+000463r 2  F0 02          beq @kbNoDir
+000465r 2  85 3C          sta NEXT_DIR
+000467r 2               @kbNoDir:
+000467r 2  A5 6A          lda KB_FIRE
+000469r 2  F0 04          beq @doneDrain
+00046Br 2  A9 01          lda #1
+00046Dr 2  85 60          sta START_PRESSED
+00046Fr 2               
+00046Fr 2               @doneDrain:
+00046Fr 2                 ; Edge-detect the A button / space: FIRE_EDGE is set only on the poll it
+00046Fr 2                 ; first goes down, so a held button (which reads as continuously down
+00046Fr 2                 ; every poll) doesn't repeatedly re-trigger pause/resume/restart every
+00046Fr 2                 ; tick.
+00046Fr 2  64 62          stz FIRE_EDGE
+000471r 2  A5 61          lda PREV_FIRE
+000473r 2  D0 06          bne @noEdge
+000475r 2  A5 60          lda START_PRESSED
+000477r 2  F0 02          beq @noEdge
+000479r 2  E6 62          inc FIRE_EDGE
+00047Br 2               @noEdge:
+00047Br 2  A5 60          lda START_PRESSED
+00047Dr 2  85 61          sta PREV_FIRE
+00047Fr 2  60             rts
+000480r 2               
+000480r 1               .include "src/sound.asm"
+000480r 2               ; =============================================================================
+000480r 2               ;   sound.asm — eat / death sound feedback
+000480r 2               ; =============================================================================
+000480r 2               ;   Beep is guaranteed safe (self-no-ops with no SID card) but blocks the
+000480r 2               ;   CPU for its full ~300ms tone duration — fine for a one-off like
+000480r 2               ;   GameOver, but audible every apple pickup as a freeze twice as long as
+000480r 2               ;   a game tick. Sound_Eat instead drives SidPlayNote/SidSilence directly:
+000480r 2               ;   both are plain register writes with no delay loop, so they return to
+000480r 2               ;   the caller immediately.
+000480r 2               ;
+000480r 2               ;   SidPlayNote's envelope is Attack=0 (~2ms to peak on real SID hardware),
+000480r 2               ;   Decay=9, Sustain=$F, Release=8. Calling SidSilence back-to-back with
+000480r 2               ;   SidPlayNote (a handful of CPU cycles apart, i.e. microseconds) gates
+000480r 2               ;   the note off before that ~2ms attack ramp has gotten anywhere near
+000480r 2               ;   peak amplitude — what actually plays is a near-silent fade from
+000480r 2               ;   whatever tiny level it reached, not a crisp hit. That reads as the
+000480r 2               ;   sound being soft/late even though it's logically triggered on the
+000480r 2               ;   right tick. Fix: let the note actually ring for about one game tick
+000480r 2               ;   before silencing it, via a deferred flag serviced at the top of the
+000480r 2               ;   next tick, instead of silencing it in the same breath as triggering it.
+000480r 2               ; =============================================================================
+000480r 2               
+000480r 2               .segment "CART"
+000480r 2               
+000480r 2               Sound_Eat:
+000480r 2  A9 00          lda #0
+000482r 2  A2 69          ldx #<SID_NOTE_E6
+000484r 2  A0 56          ldy #>SID_NOTE_E6
+000486r 2  20 33 A0       jsr SidPlayNote
+000489r 2  A9 01          lda #1
+00048Br 2  85 68          sta SOUND_PENDING
+00048Dr 2  60             rts
+00048Er 2               
+00048Er 2               ; Sound_ServiceSilence — call once per tick, before triggering any new
+00048Er 2               ; sound this tick, so a note from last tick gets roughly a full tick's
+00048Er 2               ; worth of real time to ring before being cut off.
+00048Er 2               Sound_ServiceSilence:
+00048Er 2  A5 68          lda SOUND_PENDING
+000490r 2  F0 05          beq @done
+000492r 2  20 36 A0       jsr SidSilence
+000495r 2  64 68          stz SOUND_PENDING
+000497r 2               @done:
+000497r 2  60             rts
+000498r 2               
+000498r 2               Sound_Death:
+000498r 2  20 30 A0       jsr Beep
+00049Br 2  20 30 A0       jsr Beep
+00049Er 2  60             rts
+00049Fr 2               
+00049Fr 1               .include "src/game.asm"
+00049Fr 2               ; =============================================================================
+00049Fr 2               ;   game.asm — Snake state machine: title wait, tick logic, HUD, game over
+00049Fr 2               ; =============================================================================
+00049Fr 2               
+00049Fr 2               .segment "CART"
+00049Fr 2               
+00049Fr 2               ; -----------------------------------------------------------------------------
+00049Fr 2               ; DrawTitleScreen — draw the title screen in Graphics I, using the same
+00049Fr 2               ; tiles/palette as gameplay (called once at boot, before WaitForStart, on
+00049Fr 2               ; top of the border InitGraphicsI already drew). Every line's column is
+00049Fr 2               ; computed for exact centering in the 32-wide grid.
+00049Fr 2               ; -----------------------------------------------------------------------------
+00049Fr 2               DrawTitleScreen:
+00049Fr 2  A9 rr          lda #<TitleText
+0004A1r 2  85 56          sta WORK_PTR
+0004A3r 2  A9 rr          lda #>TitleText
+0004A5r 2  85 57          sta WORK_PTR+1
+0004A7r 2  A9 08          lda #8
+0004A9r 2  A2 0B          ldx #11
+0004ABr 2  20 rr rr       jsr DrawString
+0004AEr 2               
+0004AEr 2                 ; snake + apple decoration, row 10: the same tiles used in gameplay, so
+0004AEr 2                 ; the title screen reads as the same game, not a splash screen bolted
+0004AEr 2                 ; on top of it. "S N A K E" above (cols 11-19) is the point of
+0004AEr 2                 ; reference — the body underlines the whole word and runs a couple
+0004AEr 2                 ; cells past it on both ends, with the head chasing a nearby apple.
+0004AEr 2  A9 09          lda #9
+0004B0r 2  85 4D          sta SCAN_TMP
+0004B2r 2               @titleSnakeBody:
+0004B2r 2  A9 0A          lda #10
+0004B4r 2  A6 4D          ldx SCAN_TMP
+0004B6r 2  A0 88          ldy #TILE_BODY
+0004B8r 2  20 rr rr       jsr DrawTile
+0004BBr 2  E6 4D          inc SCAN_TMP
+0004BDr 2  A5 4D          lda SCAN_TMP
+0004BFr 2  C9 14          cmp #20
+0004C1r 2  D0 EF          bne @titleSnakeBody
+0004C3r 2               
+0004C3r 2  A9 0A          lda #10
+0004C5r 2  A2 14          ldx #20
+0004C7r 2  A0 80          ldy #TILE_HEAD
+0004C9r 2  20 rr rr       jsr DrawTile
+0004CCr 2               
+0004CCr 2  A9 0A          lda #10
+0004CEr 2  A2 16          ldx #22
+0004D0r 2  A0 90          ldy #TILE_FOOD
+0004D2r 2  20 rr rr       jsr DrawTile
+0004D5r 2               
+0004D5r 2  A9 rr          lda #<HighScoreLabel
+0004D7r 2  85 56          sta WORK_PTR
+0004D9r 2  A9 rr          lda #>HighScoreLabel
+0004DBr 2  85 57          sta WORK_PTR+1
+0004DDr 2  A9 0C          lda #12
+0004DFr 2  A2 07          ldx #7
+0004E1r 2  20 rr rr       jsr DrawString
+0004E4r 2  A5 65          lda HIGH_SCORE_LO
+0004E6r 2  A6 66          ldx HIGH_SCORE_HI
+0004E8r 2  20 rr rr       jsr ValueToDigits
+0004EBr 2  A9 0C          lda #12
+0004EDr 2  A2 13          ldx #19
+0004EFr 2  20 rr rr       jsr DrawDigitBuf
+0004F2r 2               
+0004F2r 2  A9 rr          lda #<StartPromptMsg
+0004F4r 2  85 56          sta WORK_PTR
+0004F6r 2  A9 rr          lda #>StartPromptMsg
+0004F8r 2  85 57          sta WORK_PTR+1
+0004FAr 2  A9 0E          lda #14
+0004FCr 2  A2 08          ldx #8
+0004FEr 2  4C rr rr       jmp DrawString
+000501r 2               
+000501r 2               ; -----------------------------------------------------------------------------
+000501r 2               ; WaitForStart — title-screen loop. Polls for the A button, seeds RNG_STATE
+000501r 2               ; from elapsed loop iterations (reaction-time entropy) plus the RTC clock
+000501r 2               ; if fitted.
+000501r 2               ; -----------------------------------------------------------------------------
+000501r 2               WaitForStart:
+000501r 2  64 46          stz RNG_STATE
+000503r 2               @loop:
+000503r 2  E6 46          inc RNG_STATE
+000505r 2  20 rr rr       jsr PollInput
+000508r 2  A5 60          lda START_PRESSED
+00050Ar 2  D0 03          bne @done
+00050Cr 2  4C rr rr       jmp @loop
+00050Fr 2               @done:
+00050Fr 2  AD 0D 03       lda HW_PRESENT
+000512r 2  29 04          and #HW_RTC
+000514r 2  F0 11          beq @noRtc
+000516r 2  20 5A A0       jsr RtcReadTime          ; A=hours, X=minutes, Y=seconds
+000519r 2  45 46          eor RNG_STATE
+00051Br 2  85 46          sta RNG_STATE
+00051Dr 2  8A             txa
+00051Er 2  45 46          eor RNG_STATE
+000520r 2  85 46          sta RNG_STATE
+000522r 2  98             tya
+000523r 2  45 46          eor RNG_STATE
+000525r 2  85 46          sta RNG_STATE
+000527r 2               @noRtc:
+000527r 2  A5 46          lda RNG_STATE
+000529r 2  D0 04          bne @nonzero
+00052Br 2  A9 2A          lda #$2A
+00052Dr 2  85 46          sta RNG_STATE
+00052Fr 2               @nonzero:
+00052Fr 2  60             rts
+000530r 2               
+000530r 2               ; -----------------------------------------------------------------------------
+000530r 2               ; NewGame — reset the playfield and snake for a fresh game (also used to
+000530r 2               ; restart from GAMEOVER; safe to call repeatedly since it fully redraws the
+000530r 2               ; occupancy grid and border rather than tracking incremental cleanup).
+000530r 2               ; -----------------------------------------------------------------------------
+000530r 2               NewGame:
+000530r 2  20 rr rr       jsr ClearScreen          ; wipe any leftover snake/food/message from a
+000533r 2                                           ; previous game before rebuilding the board
+000533r 2  20 rr rr       jsr InitOccupancy
+000536r 2  20 rr rr       jsr DrawBorder
+000539r 2               
+000539r 2  A9 0F          lda #15
+00053Br 2  8D 00 08       sta SEGMENTS_X
+00053Er 2  A9 0C          lda #12
+000540r 2  8D 00 09       sta SEGMENTS_Y
+000543r 2  A9 10          lda #16
+000545r 2  8D 01 08       sta SEGMENTS_X+1
+000548r 2  A9 0C          lda #12
+00054Ar 2  8D 01 09       sta SEGMENTS_Y+1
+00054Dr 2  A9 11          lda #17
+00054Fr 2  8D 02 08       sta SEGMENTS_X+2
+000552r 2  A9 0C          lda #12
+000554r 2  8D 02 09       sta SEGMENTS_Y+2
+000557r 2               
+000557r 2  A9 00          lda #0
+000559r 2  85 40          sta TAIL_IDX
+00055Br 2  A9 02          lda #2
+00055Dr 2  85 3F          sta HEAD_IDX
+00055Fr 2  A9 03          lda #3
+000561r 2  85 41          sta SNAKE_LEN
+000563r 2  A9 11          lda #17
+000565r 2  85 3D          sta HEAD_X
+000567r 2  A9 0C          lda #12
+000569r 2  85 3E          sta HEAD_Y
+00056Br 2  A9 03          lda #DIR_RIGHT
+00056Dr 2  85 3B          sta DIRECTION
+00056Fr 2  85 3C          sta NEXT_DIR
+000571r 2  A9 00          lda #0
+000573r 2  85 44          sta SCORE_LO
+000575r 2  85 45          sta SCORE_HI
+000577r 2               
+000577r 2  A9 0C          lda #12
+000579r 2  A2 0F          ldx #15
+00057Br 2  A0 01          ldy #1
+00057Dr 2  20 rr rr       jsr OccupancySet
+000580r 2  A9 0C          lda #12
+000582r 2  A2 10          ldx #16
+000584r 2  A0 01          ldy #1
+000586r 2  20 rr rr       jsr OccupancySet
+000589r 2  A9 0C          lda #12
+00058Br 2  A2 11          ldx #17
+00058Dr 2  A0 01          ldy #1
+00058Fr 2  20 rr rr       jsr OccupancySet
+000592r 2               
+000592r 2  A9 0C          lda #12
+000594r 2  A2 0F          ldx #15
+000596r 2  A0 88          ldy #TILE_BODY
+000598r 2  20 rr rr       jsr DrawTile
+00059Br 2  A9 0C          lda #12
+00059Dr 2  A2 10          ldx #16
+00059Fr 2  A0 88          ldy #TILE_BODY
+0005A1r 2  20 rr rr       jsr DrawTile
+0005A4r 2  A9 0C          lda #12
+0005A6r 2  A2 11          ldx #17
+0005A8r 2  A0 80          ldy #TILE_HEAD
+0005AAr 2  20 rr rr       jsr DrawTile
+0005ADr 2               
+0005ADr 2  20 rr rr       jsr RespawnFood
+0005B0r 2  20 rr rr       jsr DrawHudLabel
+0005B3r 2  20 rr rr       jsr UpdateHud
+0005B6r 2               
+0005B6r 2  A9 01          lda #STATE_PLAYING
+0005B8r 2  85 3A          sta GAME_STATE
+0005BAr 2  60             rts
+0005BBr 2               
+0005BBr 2               ; -----------------------------------------------------------------------------
+0005BBr 2               ; Tick — advance the snake one grid step
+0005BBr 2               ; -----------------------------------------------------------------------------
+0005BBr 2               Tick:
+0005BBr 2  20 rr rr       jsr Sound_ServiceSilence
+0005BEr 2  A5 3B          lda DIRECTION
+0005C0r 2  49 01          eor #1
+0005C2r 2  C5 3C          cmp NEXT_DIR
+0005C4r 2  F0 04          beq @skipDirUpdate
+0005C6r 2  A5 3C          lda NEXT_DIR
+0005C8r 2  85 3B          sta DIRECTION
+0005CAr 2               @skipDirUpdate:
 0005CAr 2               
-0005CAr 2  E6 40          inc TAIL_IDX
-0005CCr 2               
-0005CCr 2               @tickDone:
-0005CCr 2  60             rts
-0005CDr 2               
-0005CDr 2               ; -----------------------------------------------------------------------------
-0005CDr 2               ; GameOver
-0005CDr 2               ; -----------------------------------------------------------------------------
-0005CDr 2               GameOver:
-0005CDr 2  A9 02          lda #STATE_GAMEOVER
-0005CFr 2  85 3A          sta GAME_STATE
-0005D1r 2  20 rr rr       jsr Sound_Death
-0005D4r 2               
-0005D4r 2  64 67          stz NEW_HIGH_FLAG
-0005D6r 2  A5 45          lda SCORE_HI
-0005D8r 2  C5 66          cmp HIGH_SCORE_HI
-0005DAr 2  90 19          bcc @notHigh
-0005DCr 2  D0 08          bne @isHigh
-0005DEr 2  A5 44          lda SCORE_LO
-0005E0r 2  C5 65          cmp HIGH_SCORE_LO
-0005E2r 2  90 11          bcc @notHigh
-0005E4r 2  F0 0F          beq @notHigh            ; a tied score doesn't count as a NEW high
-0005E6r 2               @isHigh:
-0005E6r 2  A5 44          lda SCORE_LO
-0005E8r 2  85 65          sta HIGH_SCORE_LO
-0005EAr 2  A5 45          lda SCORE_HI
-0005ECr 2  85 66          sta HIGH_SCORE_HI
-0005EEr 2  A9 01          lda #1
-0005F0r 2  85 67          sta NEW_HIGH_FLAG
-0005F2r 2  20 rr rr       jsr SaveHighScore
-0005F5r 2               @notHigh:
-0005F5r 2  20 rr rr       jsr DrawGameOverOverlay
-0005F8r 2  60             rts
-0005F9r 2               
-0005F9r 2               ; -----------------------------------------------------------------------------
-0005F9r 2               ; High score persistence — the cartridge ROM itself is read-only and can't
-0005F9r 2               ; store anything, but the RTC card (when fitted) carries 256 bytes of
-0005F9r 2               ; battery-backed NVRAM that survives power cycles. We use 3 of those bytes:
-0005F9r 2               ; a signature (to tell "our data" from an untouched/foreign NVRAM) plus the
-0005F9r 2               ; 16-bit score. With no RTC card, the high score is still tracked — it just
-0005F9r 2               ; lives in RAM only and resets whenever the machine is powered off.
-0005F9r 2               ; -----------------------------------------------------------------------------
-0005F9r 2               NVRAM_SIG_ADDR      = 0
-0005F9r 2               NVRAM_SCORE_LO_ADDR = 1
-0005F9r 2               NVRAM_SCORE_HI_ADDR = 2
-0005F9r 2               NVRAM_MAGIC         = $A5
-0005F9r 2               
-0005F9r 2               ; LoadHighScore — call once at boot, before the title screen is drawn
-0005F9r 2               LoadHighScore:
-0005F9r 2  64 65          stz HIGH_SCORE_LO
-0005FBr 2  64 66          stz HIGH_SCORE_HI
-0005FDr 2  AD 0D 03       lda HW_PRESENT
-000600r 2  29 04          and #HW_RTC
-000602r 2  F0 17          beq @done
-000604r 2  A2 00          ldx #NVRAM_SIG_ADDR
-000606r 2  20 66 A0       jsr RtcReadNVRAM
-000609r 2  C9 A5          cmp #NVRAM_MAGIC
-00060Br 2  D0 0E          bne @done                ; untouched NVRAM (or a different program's data) -> start at 0
-00060Dr 2  A2 01          ldx #NVRAM_SCORE_LO_ADDR
-00060Fr 2  20 66 A0       jsr RtcReadNVRAM
-000612r 2  85 65          sta HIGH_SCORE_LO
-000614r 2  A2 02          ldx #NVRAM_SCORE_HI_ADDR
-000616r 2  20 66 A0       jsr RtcReadNVRAM
-000619r 2  85 66          sta HIGH_SCORE_HI
-00061Br 2               @done:
-00061Br 2  60             rts
-00061Cr 2               
-00061Cr 2               ; SaveHighScore — call whenever HIGH_SCORE_LO/HI changes
-00061Cr 2               SaveHighScore:
-00061Cr 2  AD 0D 03       lda HW_PRESENT
-00061Fr 2  29 04          and #HW_RTC
-000621r 2  F0 15          beq @done                ; no RTC card -> nothing to persist to, skip silently
-000623r 2  A9 A5          lda #NVRAM_MAGIC
-000625r 2  A2 00          ldx #NVRAM_SIG_ADDR
-000627r 2  20 69 A0       jsr RtcWriteNVRAM
-00062Ar 2  A5 65          lda HIGH_SCORE_LO
-00062Cr 2  A2 01          ldx #NVRAM_SCORE_LO_ADDR
-00062Er 2  20 69 A0       jsr RtcWriteNVRAM
-000631r 2  A5 66          lda HIGH_SCORE_HI
-000633r 2  A2 02          ldx #NVRAM_SCORE_HI_ADDR
-000635r 2  20 69 A0       jsr RtcWriteNVRAM
-000638r 2               @done:
-000638r 2  60             rts
-000639r 2               
-000639r 2               ; -----------------------------------------------------------------------------
-000639r 2               ; RespawnFood — place food on a random empty cell (bounded retry)
-000639r 2               ; -----------------------------------------------------------------------------
-000639r 2               RespawnFood:
-000639r 2  64 4C          stz RETRY_CNT
-00063Br 2               @try:
-00063Br 2  20 rr rr       jsr RollCol
-00063Er 2  85 42          sta FOOD_X
-000640r 2  20 rr rr       jsr RollRow
-000643r 2  85 43          sta FOOD_Y
-000645r 2               
-000645r 2  A5 43          lda FOOD_Y
-000647r 2  A6 42          ldx FOOD_X
-000649r 2  20 rr rr       jsr OccupancyGet
-00064Cr 2  C9 00          cmp #0
-00064Er 2  F0 10          beq @placed
+0005CAr 2  A5 3D          lda HEAD_X
+0005CCr 2  85 47          sta NEW_HEAD_X
+0005CEr 2  A5 3E          lda HEAD_Y
+0005D0r 2  85 48          sta NEW_HEAD_Y
+0005D2r 2               
+0005D2r 2  A5 3B          lda DIRECTION
+0005D4r 2  C9 00          cmp #DIR_UP
+0005D6r 2  D0 05          bne @notUp
+0005D8r 2  C6 48          dec NEW_HEAD_Y
+0005DAr 2  4C rr rr       jmp @dirDone
+0005DDr 2               @notUp:
+0005DDr 2  C9 01          cmp #DIR_DOWN
+0005DFr 2  D0 05          bne @notDown
+0005E1r 2  E6 48          inc NEW_HEAD_Y
+0005E3r 2  4C rr rr       jmp @dirDone
+0005E6r 2               @notDown:
+0005E6r 2  C9 02          cmp #DIR_LEFT
+0005E8r 2  D0 05          bne @notLeft
+0005EAr 2  C6 47          dec NEW_HEAD_X
+0005ECr 2  4C rr rr       jmp @dirDone
+0005EFr 2               @notLeft:
+0005EFr 2  E6 47          inc NEW_HEAD_X
+0005F1r 2               @dirDone:
+0005F1r 2               
+0005F1r 2  A5 47          lda NEW_HEAD_X
+0005F3r 2  C5 42          cmp FOOD_X
+0005F5r 2  D0 0D          bne @notFood
+0005F7r 2  A5 48          lda NEW_HEAD_Y
+0005F9r 2  C5 43          cmp FOOD_Y
+0005FBr 2  D0 07          bne @notFood
+0005FDr 2  A9 01          lda #1
+0005FFr 2  85 49          sta GROW_FLAG
+000601r 2  4C rr rr       jmp @foodCheckDone
+000604r 2               @notFood:
+000604r 2  A9 00          lda #0
+000606r 2  85 49          sta GROW_FLAG
+000608r 2               @foodCheckDone:
+000608r 2               
+000608r 2  A5 48          lda NEW_HEAD_Y
+00060Ar 2  A6 47          ldx NEW_HEAD_X
+00060Cr 2  20 rr rr       jsr OccupancyGet
+00060Fr 2  C9 00          cmp #0
+000611r 2  F0 1E          beq @moveOk
+000613r 2  C9 03          cmp #3
+000615r 2  F0 17          beq @collision
+000617r 2               
+000617r 2  A5 49          lda GROW_FLAG
+000619r 2  D0 13          bne @collision
+00061Br 2               
+00061Br 2  A4 40          ldy TAIL_IDX
+00061Dr 2  B9 00 08       lda SEGMENTS_X,y
+000620r 2  C5 47          cmp NEW_HEAD_X
+000622r 2  D0 0A          bne @collision
+000624r 2  B9 00 09       lda SEGMENTS_Y,y
+000627r 2  C5 48          cmp NEW_HEAD_Y
+000629r 2  D0 03          bne @collision
+00062Br 2  4C rr rr       jmp @moveOk
+00062Er 2               
+00062Er 2               @collision:
+00062Er 2  4C rr rr       jmp GameOver
+000631r 2               
+000631r 2               @moveOk:
+000631r 2  A5 3E          lda HEAD_Y
+000633r 2  A6 3D          ldx HEAD_X
+000635r 2  A0 88          ldy #TILE_BODY
+000637r 2  20 rr rr       jsr DrawTile
+00063Ar 2               
+00063Ar 2  E6 3F          inc HEAD_IDX
+00063Cr 2  A4 3F          ldy HEAD_IDX
+00063Er 2  A5 47          lda NEW_HEAD_X
+000640r 2  99 00 08       sta SEGMENTS_X,y
+000643r 2  A5 48          lda NEW_HEAD_Y
+000645r 2  99 00 09       sta SEGMENTS_Y,y
+000648r 2               
+000648r 2  A5 47          lda NEW_HEAD_X
+00064Ar 2  85 3D          sta HEAD_X
+00064Cr 2  A5 48          lda NEW_HEAD_Y
+00064Er 2  85 3E          sta HEAD_Y
 000650r 2               
-000650r 2  E6 4C          inc RETRY_CNT
-000652r 2  A5 4C          lda RETRY_CNT
-000654r 2  C9 20          cmp #32
-000656r 2  D0 E3          bne @try
-000658r 2               
-000658r 2  A9 01          lda #FIELD_LEFT
-00065Ar 2  85 42          sta FOOD_X
-00065Cr 2  A9 02          lda #FIELD_TOP
-00065Er 2  85 43          sta FOOD_Y
-000660r 2               
-000660r 2               @placed:
-000660r 2  A5 43          lda FOOD_Y
-000662r 2  A6 42          ldx FOOD_X
-000664r 2  A0 90          ldy #TILE_FOOD
-000666r 2  20 rr rr       jsr DrawTile
-000669r 2  60             rts
-00066Ar 2               
-00066Ar 2               ; -----------------------------------------------------------------------------
-00066Ar 2               ; Decimal HUD helpers
-00066Ar 2               ; -----------------------------------------------------------------------------
-00066Ar 2               
-00066Ar 2               ; Sub16IfGE — if SC_TMP >= SUB, subtract and return carry set; else carry clear
-00066Ar 2               Sub16IfGE:
-00066Ar 2  A5 5C          lda SC_TMP_HI
-00066Cr 2  C5 5E          cmp SUB_HI
-00066Er 2  90 17          bcc @no
-000670r 2  D0 06          bne @yes
-000672r 2  A5 5B          lda SC_TMP_LO
-000674r 2  C5 5D          cmp SUB_LO
-000676r 2  90 0F          bcc @no
-000678r 2               @yes:
-000678r 2  A5 5B          lda SC_TMP_LO
-00067Ar 2  38             sec
-00067Br 2  E5 5D          sbc SUB_LO
-00067Dr 2  85 5B          sta SC_TMP_LO
-00067Fr 2  A5 5C          lda SC_TMP_HI
-000681r 2  E5 5E          sbc SUB_HI
-000683r 2  85 5C          sta SC_TMP_HI
-000685r 2  38             sec
-000686r 2  60             rts
-000687r 2               @no:
-000687r 2  18             clc
-000688r 2  60             rts
-000689r 2               
-000689r 2               ; CountDigit — count how many times SUB can be subtracted from SC_TMP
-000689r 2               ; Out: A = ASCII digit ('0'-'9')
-000689r 2               CountDigit:
-000689r 2  A9 00          lda #0
-00068Br 2  85 5F          sta DIGIT_COUNT
-00068Dr 2               @loop:
-00068Dr 2  20 rr rr       jsr Sub16IfGE
-000690r 2  90 05          bcc @done
-000692r 2  E6 5F          inc DIGIT_COUNT
-000694r 2  4C rr rr       jmp @loop
-000697r 2               @done:
-000697r 2  A5 5F          lda DIGIT_COUNT
-000699r 2  18             clc
-00069Ar 2  69 30          adc #'0'
-00069Cr 2  60             rts
+000650r 2  A5 3E          lda HEAD_Y
+000652r 2  A6 3D          ldx HEAD_X
+000654r 2  A0 01          ldy #1
+000656r 2  20 rr rr       jsr OccupancySet
+000659r 2               
+000659r 2  A5 3E          lda HEAD_Y
+00065Br 2  A6 3D          ldx HEAD_X
+00065Dr 2  A0 80          ldy #TILE_HEAD
+00065Fr 2  20 rr rr       jsr DrawTile
+000662r 2               
+000662r 2  A5 49          lda GROW_FLAG
+000664r 2  F0 1B          beq @noGrow
+000666r 2               
+000666r 2  E6 41          inc SNAKE_LEN
+000668r 2  18             clc
+000669r 2  A5 44          lda SCORE_LO
+00066Br 2  69 0A          adc #10
+00066Dr 2  85 44          sta SCORE_LO
+00066Fr 2  A5 45          lda SCORE_HI
+000671r 2  69 00          adc #0
+000673r 2  85 45          sta SCORE_HI
+000675r 2  20 rr rr       jsr UpdateHud
+000678r 2  20 rr rr       jsr Sound_Eat
+00067Br 2  20 rr rr       jsr RespawnFood
+00067Er 2  4C rr rr       jmp @tickDone
+000681r 2               
+000681r 2               @noGrow:
+000681r 2  A4 40          ldy TAIL_IDX
+000683r 2  B9 00 08       lda SEGMENTS_X,y
+000686r 2  85 58          sta OLD_TAIL_X
+000688r 2  B9 00 09       lda SEGMENTS_Y,y
+00068Br 2  85 59          sta OLD_TAIL_Y
+00068Dr 2               
+00068Dr 2  A5 59          lda OLD_TAIL_Y
+00068Fr 2  A6 58          ldx OLD_TAIL_X
+000691r 2  A0 00          ldy #0
+000693r 2  20 rr rr       jsr OccupancySet
+000696r 2               
+000696r 2  A5 59          lda OLD_TAIL_Y
+000698r 2  A6 58          ldx OLD_TAIL_X
+00069Ar 2  20 rr rr       jsr EraseTile
 00069Dr 2               
-00069Dr 2               ; ValueToDigits — convert a 16-bit value into 5 ASCII digits in DIGIT_BUF
-00069Dr 2               ; In: A = value low, X = value high
-00069Dr 2               ValueToDigits:
-00069Dr 2  85 5B          sta SC_TMP_LO
-00069Fr 2  86 5C          stx SC_TMP_HI
-0006A1r 2               
-0006A1r 2  A9 10          lda #<10000
-0006A3r 2  85 5D          sta SUB_LO
-0006A5r 2  A9 27          lda #>10000
-0006A7r 2  85 5E          sta SUB_HI
-0006A9r 2  20 rr rr       jsr CountDigit
-0006ACr 2  85 4E          sta DIGIT_BUF+0
-0006AEr 2               
-0006AEr 2  A9 E8          lda #<1000
-0006B0r 2  85 5D          sta SUB_LO
-0006B2r 2  A9 03          lda #>1000
-0006B4r 2  85 5E          sta SUB_HI
-0006B6r 2  20 rr rr       jsr CountDigit
-0006B9r 2  85 4F          sta DIGIT_BUF+1
-0006BBr 2               
-0006BBr 2  A9 64          lda #<100
-0006BDr 2  85 5D          sta SUB_LO
-0006BFr 2  A9 00          lda #>100
-0006C1r 2  85 5E          sta SUB_HI
-0006C3r 2  20 rr rr       jsr CountDigit
-0006C6r 2  85 50          sta DIGIT_BUF+2
-0006C8r 2               
-0006C8r 2  A9 0A          lda #<10
-0006CAr 2  85 5D          sta SUB_LO
-0006CCr 2  A9 00          lda #>10
-0006CEr 2  85 5E          sta SUB_HI
-0006D0r 2  20 rr rr       jsr CountDigit
-0006D3r 2  85 51          sta DIGIT_BUF+3
-0006D5r 2               
-0006D5r 2  A5 5B          lda SC_TMP_LO
-0006D7r 2  18             clc
-0006D8r 2  69 30          adc #'0'
-0006DAr 2  85 52          sta DIGIT_BUF+4
-0006DCr 2  60             rts
-0006DDr 2               
-0006DDr 2               ; UpdateHud — redraw the score digits at row 0, columns 8-12
-0006DDr 2               UpdateHud:
-0006DDr 2  A5 44          lda SCORE_LO
-0006DFr 2  A6 45          ldx SCORE_HI
-0006E1r 2  20 rr rr       jsr ValueToDigits
-0006E4r 2  A9 00          lda #0
-0006E6r 2  A2 08          ldx #8
-0006E8r 2  4C rr rr       jmp DrawDigitBuf
-0006EBr 2               
-0006EBr 2               ; DrawDigitBuf — draw the 5 ASCII digits currently in DIGIT_BUF at (row,col)
-0006EBr 2               ; In: A = row, X = col
-0006EBr 2               DrawDigitBuf:
-0006EBr 2  85 63          sta MSG_ROW
-0006EDr 2  86 4D          stx SCAN_TMP
-0006EFr 2  64 5A          stz STR_IDX
-0006F1r 2               @loop:
-0006F1r 2  A4 5A          ldy STR_IDX
-0006F3r 2  B9 4E 00       lda DIGIT_BUF,y
-0006F6r 2  A8             tay
-0006F7r 2  A5 63          lda MSG_ROW
-0006F9r 2  A6 4D          ldx SCAN_TMP
-0006FBr 2  20 rr rr       jsr DrawTile
-0006FEr 2  E6 4D          inc SCAN_TMP
-000700r 2  E6 5A          inc STR_IDX
-000702r 2  A5 5A          lda STR_IDX
-000704r 2  C9 05          cmp #5
-000706r 2  D0 E9          bne @loop
-000708r 2  60             rts
-000709r 2               
-000709r 2               ; DrawString — draw a null-terminated string starting at (row,col)
-000709r 2               ; In: A = row, X = col, WORK_PTR/WORK_PTR+1 = string pointer
-000709r 2               DrawString:
-000709r 2  85 63          sta MSG_ROW
-00070Br 2  86 4D          stx SCAN_TMP
-00070Dr 2  64 5A          stz STR_IDX
-00070Fr 2               @loop:
-00070Fr 2  A4 5A          ldy STR_IDX
-000711r 2  B1 56          lda (WORK_PTR),y
-000713r 2  F0 0F          beq @done
-000715r 2  A8             tay
-000716r 2  A5 63          lda MSG_ROW
-000718r 2  A6 4D          ldx SCAN_TMP
-00071Ar 2  20 rr rr       jsr DrawTile
-00071Dr 2  E6 4D          inc SCAN_TMP
-00071Fr 2  E6 5A          inc STR_IDX
-000721r 2  4C rr rr       jmp @loop
-000724r 2               @done:
-000724r 2  60             rts
-000725r 2               
-000725r 2               ; ClearRow — blank an entire row
-000725r 2               ; In: A = row
-000725r 2               ClearRow:
-000725r 2  85 63          sta MSG_ROW
-000727r 2  64 4D          stz SCAN_TMP
-000729r 2               @loop:
-000729r 2  A5 63          lda MSG_ROW
-00072Br 2  A6 4D          ldx SCAN_TMP
-00072Dr 2  20 rr rr       jsr EraseTile
-000730r 2  E6 4D          inc SCAN_TMP
-000732r 2  A5 4D          lda SCAN_TMP
-000734r 2  C9 20          cmp #GRID_COLS
-000736r 2  D0 F1          bne @loop
-000738r 2  60             rts
-000739r 2               
-000739r 2               ; DrawHudLabel — draw the static "SCORE:" label at row 0, column 1
-000739r 2               DrawHudLabel:
-000739r 2  A9 rr          lda #<ScoreLabel
-00073Br 2  85 56          sta WORK_PTR
-00073Dr 2  A9 rr          lda #>ScoreLabel
-00073Fr 2  85 57          sta WORK_PTR+1
-000741r 2  A9 00          lda #0
-000743r 2  A2 01          ldx #1
-000745r 2  4C rr rr       jmp DrawString
-000748r 2               
-000748r 2               ; DrawGameOverOverlay — draw a highlighted box centered on the board with
-000748r 2               ; the final score and, if this round set a new record, a callout for it
-000748r 2               ; (otherwise the standing high score, for reference).
-000748r 2               DrawGameOverOverlay:
-000748r 2  20 rr rr       jsr DrawBoxFrame
-00074Br 2  20 rr rr       jsr ClearBoxInterior
-00074Er 2               
-00074Er 2  A9 rr          lda #<GameOverTitleMsg
-000750r 2  85 56          sta WORK_PTR
-000752r 2  A9 rr          lda #>GameOverTitleMsg
-000754r 2  85 57          sta WORK_PTR+1
-000756r 2  A9 0A          lda #(BOX_TOP+2)
-000758r 2  A2 0B          ldx #11
-00075Ar 2  20 rr rr       jsr DrawString
-00075Dr 2               
-00075Dr 2  A9 rr          lda #<ScoreLabel2
-00075Fr 2  85 56          sta WORK_PTR
-000761r 2  A9 rr          lda #>ScoreLabel2
-000763r 2  85 57          sta WORK_PTR+1
-000765r 2  A9 0B          lda #(BOX_TOP+3)
-000767r 2  A2 0A          ldx #10
-000769r 2  20 rr rr       jsr DrawString
-00076Cr 2  A5 44          lda SCORE_LO
-00076Er 2  A6 45          ldx SCORE_HI
-000770r 2  20 rr rr       jsr ValueToDigits
-000773r 2  A9 0B          lda #(BOX_TOP+3)
-000775r 2  A2 11          ldx #17
-000777r 2  20 rr rr       jsr DrawDigitBuf
-00077Ar 2               
-00077Ar 2  A5 67          lda NEW_HIGH_FLAG
-00077Cr 2  F0 12          beq @showHighRef
-00077Er 2               
-00077Er 2  A9 rr          lda #<NewHighMsg
-000780r 2  85 56          sta WORK_PTR
-000782r 2  A9 rr          lda #>NewHighMsg
-000784r 2  85 57          sta WORK_PTR+1
-000786r 2  A9 0C          lda #(BOX_TOP+4)
-000788r 2  A2 08          ldx #8
-00078Ar 2  20 rr rr       jsr DrawString
-00078Dr 2  4C rr rr       jmp @afterHighLine
-000790r 2               
-000790r 2               @showHighRef:
-000790r 2  A9 rr          lda #<HighLabelMsg
-000792r 2  85 56          sta WORK_PTR
-000794r 2  A9 rr          lda #>HighLabelMsg
-000796r 2  85 57          sta WORK_PTR+1
-000798r 2  A9 0C          lda #(BOX_TOP+4)
-00079Ar 2  A2 0A          ldx #10
-00079Cr 2  20 rr rr       jsr DrawString
-00079Fr 2  A5 65          lda HIGH_SCORE_LO
-0007A1r 2  A6 66          ldx HIGH_SCORE_HI
-0007A3r 2  20 rr rr       jsr ValueToDigits
-0007A6r 2  A9 0C          lda #(BOX_TOP+4)
-0007A8r 2  A2 11          ldx #17
-0007AAr 2  20 rr rr       jsr DrawDigitBuf
-0007ADr 2               
-0007ADr 2               @afterHighLine:
-0007ADr 2  A9 rr          lda #<PressFireMsg
-0007AFr 2  85 56          sta WORK_PTR
-0007B1r 2  A9 rr          lda #>PressFireMsg
-0007B3r 2  85 57          sta WORK_PTR+1
-0007B5r 2  A9 0D          lda #(BOX_TOP+5)
-0007B7r 2  A2 0B          ldx #11
-0007B9r 2  4C rr rr       jmp DrawString
-0007BCr 2               
-0007BCr 2               ; DrawPauseMessage — draw the paused text at row 23
-0007BCr 2               DrawPauseMessage:
-0007BCr 2  A9 rr          lda #<PauseMsg
-0007BEr 2  85 56          sta WORK_PTR
-0007C0r 2  A9 rr          lda #>PauseMsg
-0007C2r 2  85 57          sta WORK_PTR+1
-0007C4r 2  A9 17          lda #23
-0007C6r 2  A2 06          ldx #6
-0007C8r 2  4C rr rr       jmp DrawString
-0007CBr 2               
-0007CBr 2               ScoreLabel:
-0007CBr 2  53 43 4F 52    .byte "SCORE:", $00
-0007CFr 2  45 3A 00     
-0007D2r 2               
-0007D2r 2               PauseMsg:
-0007D2r 2  50 41 55 53    .byte "PAUSED - PRESS FIRE", $00
-0007D6r 2  45 44 20 2D  
-0007DAr 2  20 50 52 45  
-0007E6r 2               
-0007E6r 2               GameOverTitleMsg:
-0007E6r 2  47 41 4D 45    .byte "GAME OVER", $00
-0007EAr 2  20 4F 56 45  
-0007EEr 2  52 00        
-0007F0r 2               
-0007F0r 2               ScoreLabel2:
-0007F0r 2  53 43 4F 52    .byte "SCORE: ", $00
-0007F4r 2  45 3A 20 00  
+00069Dr 2  E6 40          inc TAIL_IDX
+00069Fr 2               
+00069Fr 2               @tickDone:
+00069Fr 2  60             rts
+0006A0r 2               
+0006A0r 2               ; -----------------------------------------------------------------------------
+0006A0r 2               ; GameOver
+0006A0r 2               ; -----------------------------------------------------------------------------
+0006A0r 2               GameOver:
+0006A0r 2  A9 02          lda #STATE_GAMEOVER
+0006A2r 2  85 3A          sta GAME_STATE
+0006A4r 2  20 rr rr       jsr Sound_Death
+0006A7r 2               
+0006A7r 2  64 67          stz NEW_HIGH_FLAG
+0006A9r 2  A5 45          lda SCORE_HI
+0006ABr 2  C5 66          cmp HIGH_SCORE_HI
+0006ADr 2  90 19          bcc @notHigh
+0006AFr 2  D0 08          bne @isHigh
+0006B1r 2  A5 44          lda SCORE_LO
+0006B3r 2  C5 65          cmp HIGH_SCORE_LO
+0006B5r 2  90 11          bcc @notHigh
+0006B7r 2  F0 0F          beq @notHigh            ; a tied score doesn't count as a NEW high
+0006B9r 2               @isHigh:
+0006B9r 2  A5 44          lda SCORE_LO
+0006BBr 2  85 65          sta HIGH_SCORE_LO
+0006BDr 2  A5 45          lda SCORE_HI
+0006BFr 2  85 66          sta HIGH_SCORE_HI
+0006C1r 2  A9 01          lda #1
+0006C3r 2  85 67          sta NEW_HIGH_FLAG
+0006C5r 2  20 rr rr       jsr SaveHighScore
+0006C8r 2               @notHigh:
+0006C8r 2  20 rr rr       jsr DrawGameOverOverlay
+0006CBr 2  60             rts
+0006CCr 2               
+0006CCr 2               ; -----------------------------------------------------------------------------
+0006CCr 2               ; High score persistence — the cartridge ROM itself is read-only and can't
+0006CCr 2               ; store anything, but the RTC card (when fitted) carries 256 bytes of
+0006CCr 2               ; battery-backed NVRAM that survives power cycles. We use 3 of those bytes:
+0006CCr 2               ; a signature (to tell "our data" from an untouched/foreign NVRAM) plus the
+0006CCr 2               ; 16-bit score. With no RTC card, the high score is still tracked — it just
+0006CCr 2               ; lives in RAM only and resets whenever the machine is powered off.
+0006CCr 2               ; -----------------------------------------------------------------------------
+0006CCr 2               NVRAM_SIG_ADDR      = 0
+0006CCr 2               NVRAM_SCORE_LO_ADDR = 1
+0006CCr 2               NVRAM_SCORE_HI_ADDR = 2
+0006CCr 2               NVRAM_MAGIC         = $A5
+0006CCr 2               
+0006CCr 2               ; LoadHighScore — call once at boot, before the title screen is drawn
+0006CCr 2               LoadHighScore:
+0006CCr 2  64 65          stz HIGH_SCORE_LO
+0006CEr 2  64 66          stz HIGH_SCORE_HI
+0006D0r 2  AD 0D 03       lda HW_PRESENT
+0006D3r 2  29 04          and #HW_RTC
+0006D5r 2  F0 17          beq @done
+0006D7r 2  A2 00          ldx #NVRAM_SIG_ADDR
+0006D9r 2  20 66 A0       jsr RtcReadNVRAM
+0006DCr 2  C9 A5          cmp #NVRAM_MAGIC
+0006DEr 2  D0 0E          bne @done                ; untouched NVRAM (or a different program's data) -> start at 0
+0006E0r 2  A2 01          ldx #NVRAM_SCORE_LO_ADDR
+0006E2r 2  20 66 A0       jsr RtcReadNVRAM
+0006E5r 2  85 65          sta HIGH_SCORE_LO
+0006E7r 2  A2 02          ldx #NVRAM_SCORE_HI_ADDR
+0006E9r 2  20 66 A0       jsr RtcReadNVRAM
+0006ECr 2  85 66          sta HIGH_SCORE_HI
+0006EEr 2               @done:
+0006EEr 2  60             rts
+0006EFr 2               
+0006EFr 2               ; SaveHighScore — call whenever HIGH_SCORE_LO/HI changes
+0006EFr 2               SaveHighScore:
+0006EFr 2  AD 0D 03       lda HW_PRESENT
+0006F2r 2  29 04          and #HW_RTC
+0006F4r 2  F0 15          beq @done                ; no RTC card -> nothing to persist to, skip silently
+0006F6r 2  A9 A5          lda #NVRAM_MAGIC
+0006F8r 2  A2 00          ldx #NVRAM_SIG_ADDR
+0006FAr 2  20 69 A0       jsr RtcWriteNVRAM
+0006FDr 2  A5 65          lda HIGH_SCORE_LO
+0006FFr 2  A2 01          ldx #NVRAM_SCORE_LO_ADDR
+000701r 2  20 69 A0       jsr RtcWriteNVRAM
+000704r 2  A5 66          lda HIGH_SCORE_HI
+000706r 2  A2 02          ldx #NVRAM_SCORE_HI_ADDR
+000708r 2  20 69 A0       jsr RtcWriteNVRAM
+00070Br 2               @done:
+00070Br 2  60             rts
+00070Cr 2               
+00070Cr 2               ; -----------------------------------------------------------------------------
+00070Cr 2               ; RespawnFood — place food on a random empty cell (bounded retry)
+00070Cr 2               ; -----------------------------------------------------------------------------
+00070Cr 2               RespawnFood:
+00070Cr 2  64 4C          stz RETRY_CNT
+00070Er 2               @try:
+00070Er 2  20 rr rr       jsr RollCol
+000711r 2  85 42          sta FOOD_X
+000713r 2  20 rr rr       jsr RollRow
+000716r 2  85 43          sta FOOD_Y
+000718r 2               
+000718r 2  A5 43          lda FOOD_Y
+00071Ar 2  A6 42          ldx FOOD_X
+00071Cr 2  20 rr rr       jsr OccupancyGet
+00071Fr 2  C9 00          cmp #0
+000721r 2  F0 10          beq @placed
+000723r 2               
+000723r 2  E6 4C          inc RETRY_CNT
+000725r 2  A5 4C          lda RETRY_CNT
+000727r 2  C9 20          cmp #32
+000729r 2  D0 E3          bne @try
+00072Br 2               
+00072Br 2  A9 01          lda #FIELD_LEFT
+00072Dr 2  85 42          sta FOOD_X
+00072Fr 2  A9 02          lda #FIELD_TOP
+000731r 2  85 43          sta FOOD_Y
+000733r 2               
+000733r 2               @placed:
+000733r 2  A5 43          lda FOOD_Y
+000735r 2  A6 42          ldx FOOD_X
+000737r 2  A0 90          ldy #TILE_FOOD
+000739r 2  20 rr rr       jsr DrawTile
+00073Cr 2  60             rts
+00073Dr 2               
+00073Dr 2               ; -----------------------------------------------------------------------------
+00073Dr 2               ; Decimal HUD helpers
+00073Dr 2               ; -----------------------------------------------------------------------------
+00073Dr 2               
+00073Dr 2               ; Sub16IfGE — if SC_TMP >= SUB, subtract and return carry set; else carry clear
+00073Dr 2               Sub16IfGE:
+00073Dr 2  A5 5C          lda SC_TMP_HI
+00073Fr 2  C5 5E          cmp SUB_HI
+000741r 2  90 17          bcc @no
+000743r 2  D0 06          bne @yes
+000745r 2  A5 5B          lda SC_TMP_LO
+000747r 2  C5 5D          cmp SUB_LO
+000749r 2  90 0F          bcc @no
+00074Br 2               @yes:
+00074Br 2  A5 5B          lda SC_TMP_LO
+00074Dr 2  38             sec
+00074Er 2  E5 5D          sbc SUB_LO
+000750r 2  85 5B          sta SC_TMP_LO
+000752r 2  A5 5C          lda SC_TMP_HI
+000754r 2  E5 5E          sbc SUB_HI
+000756r 2  85 5C          sta SC_TMP_HI
+000758r 2  38             sec
+000759r 2  60             rts
+00075Ar 2               @no:
+00075Ar 2  18             clc
+00075Br 2  60             rts
+00075Cr 2               
+00075Cr 2               ; CountDigit — count how many times SUB can be subtracted from SC_TMP
+00075Cr 2               ; Out: A = ASCII digit ('0'-'9')
+00075Cr 2               CountDigit:
+00075Cr 2  A9 00          lda #0
+00075Er 2  85 5F          sta DIGIT_COUNT
+000760r 2               @loop:
+000760r 2  20 rr rr       jsr Sub16IfGE
+000763r 2  90 05          bcc @done
+000765r 2  E6 5F          inc DIGIT_COUNT
+000767r 2  4C rr rr       jmp @loop
+00076Ar 2               @done:
+00076Ar 2  A5 5F          lda DIGIT_COUNT
+00076Cr 2  18             clc
+00076Dr 2  69 30          adc #'0'
+00076Fr 2  60             rts
+000770r 2               
+000770r 2               ; ValueToDigits — convert a 16-bit value into 5 ASCII digits in DIGIT_BUF
+000770r 2               ; In: A = value low, X = value high
+000770r 2               ValueToDigits:
+000770r 2  85 5B          sta SC_TMP_LO
+000772r 2  86 5C          stx SC_TMP_HI
+000774r 2               
+000774r 2  A9 10          lda #<10000
+000776r 2  85 5D          sta SUB_LO
+000778r 2  A9 27          lda #>10000
+00077Ar 2  85 5E          sta SUB_HI
+00077Cr 2  20 rr rr       jsr CountDigit
+00077Fr 2  85 4E          sta DIGIT_BUF+0
+000781r 2               
+000781r 2  A9 E8          lda #<1000
+000783r 2  85 5D          sta SUB_LO
+000785r 2  A9 03          lda #>1000
+000787r 2  85 5E          sta SUB_HI
+000789r 2  20 rr rr       jsr CountDigit
+00078Cr 2  85 4F          sta DIGIT_BUF+1
+00078Er 2               
+00078Er 2  A9 64          lda #<100
+000790r 2  85 5D          sta SUB_LO
+000792r 2  A9 00          lda #>100
+000794r 2  85 5E          sta SUB_HI
+000796r 2  20 rr rr       jsr CountDigit
+000799r 2  85 50          sta DIGIT_BUF+2
+00079Br 2               
+00079Br 2  A9 0A          lda #<10
+00079Dr 2  85 5D          sta SUB_LO
+00079Fr 2  A9 00          lda #>10
+0007A1r 2  85 5E          sta SUB_HI
+0007A3r 2  20 rr rr       jsr CountDigit
+0007A6r 2  85 51          sta DIGIT_BUF+3
+0007A8r 2               
+0007A8r 2  A5 5B          lda SC_TMP_LO
+0007AAr 2  18             clc
+0007ABr 2  69 30          adc #'0'
+0007ADr 2  85 52          sta DIGIT_BUF+4
+0007AFr 2  60             rts
+0007B0r 2               
+0007B0r 2               ; UpdateHud — redraw the score digits at row 0, columns 8-12
+0007B0r 2               UpdateHud:
+0007B0r 2  A5 44          lda SCORE_LO
+0007B2r 2  A6 45          ldx SCORE_HI
+0007B4r 2  20 rr rr       jsr ValueToDigits
+0007B7r 2  A9 00          lda #0
+0007B9r 2  A2 08          ldx #8
+0007BBr 2  4C rr rr       jmp DrawDigitBuf
+0007BEr 2               
+0007BEr 2               ; DrawDigitBuf — draw the 5 ASCII digits currently in DIGIT_BUF at (row,col)
+0007BEr 2               ; In: A = row, X = col
+0007BEr 2               DrawDigitBuf:
+0007BEr 2  85 63          sta MSG_ROW
+0007C0r 2  86 4D          stx SCAN_TMP
+0007C2r 2  64 5A          stz STR_IDX
+0007C4r 2               @loop:
+0007C4r 2  A4 5A          ldy STR_IDX
+0007C6r 2  B9 4E 00       lda DIGIT_BUF,y
+0007C9r 2  A8             tay
+0007CAr 2  A5 63          lda MSG_ROW
+0007CCr 2  A6 4D          ldx SCAN_TMP
+0007CEr 2  20 rr rr       jsr DrawTile
+0007D1r 2  E6 4D          inc SCAN_TMP
+0007D3r 2  E6 5A          inc STR_IDX
+0007D5r 2  A5 5A          lda STR_IDX
+0007D7r 2  C9 05          cmp #5
+0007D9r 2  D0 E9          bne @loop
+0007DBr 2  60             rts
+0007DCr 2               
+0007DCr 2               ; DrawString — draw a null-terminated string starting at (row,col)
+0007DCr 2               ; In: A = row, X = col, WORK_PTR/WORK_PTR+1 = string pointer
+0007DCr 2               DrawString:
+0007DCr 2  85 63          sta MSG_ROW
+0007DEr 2  86 4D          stx SCAN_TMP
+0007E0r 2  64 5A          stz STR_IDX
+0007E2r 2               @loop:
+0007E2r 2  A4 5A          ldy STR_IDX
+0007E4r 2  B1 56          lda (WORK_PTR),y
+0007E6r 2  F0 0F          beq @done
+0007E8r 2  A8             tay
+0007E9r 2  A5 63          lda MSG_ROW
+0007EBr 2  A6 4D          ldx SCAN_TMP
+0007EDr 2  20 rr rr       jsr DrawTile
+0007F0r 2  E6 4D          inc SCAN_TMP
+0007F2r 2  E6 5A          inc STR_IDX
+0007F4r 2  4C rr rr       jmp @loop
+0007F7r 2               @done:
+0007F7r 2  60             rts
 0007F8r 2               
-0007F8r 2               NewHighMsg:
-0007F8r 2  4E 45 57 20    .byte "NEW HIGH SCORE!", $00
-0007FCr 2  48 49 47 48  
-000800r 2  20 53 43 4F  
-000808r 2               
-000808r 2               HighLabelMsg:
-000808r 2  48 49 47 48    .byte "HIGH:  ", $00   ; extra space vs "SCORE: " so the digits line up
-00080Cr 2  3A 20 20 00  
-000810r 2               
-000810r 2               PressFireMsg:
-000810r 2  50 52 45 53    .byte "PRESS FIRE", $00
-000814r 2  53 20 46 49  
-000818r 2  52 45 00     
+0007F8r 2               ; ClearRow — blank an entire row
+0007F8r 2               ; In: A = row
+0007F8r 2               ClearRow:
+0007F8r 2  85 63          sta MSG_ROW
+0007FAr 2  64 4D          stz SCAN_TMP
+0007FCr 2               @loop:
+0007FCr 2  A5 63          lda MSG_ROW
+0007FEr 2  A6 4D          ldx SCAN_TMP
+000800r 2  20 rr rr       jsr EraseTile
+000803r 2  E6 4D          inc SCAN_TMP
+000805r 2  A5 4D          lda SCAN_TMP
+000807r 2  C9 20          cmp #GRID_COLS
+000809r 2  D0 F1          bne @loop
+00080Br 2  60             rts
+00080Cr 2               
+00080Cr 2               ; DrawHudLabel — draw the static "SCORE:" label at row 0, column 1
+00080Cr 2               DrawHudLabel:
+00080Cr 2  A9 rr          lda #<ScoreLabel
+00080Er 2  85 56          sta WORK_PTR
+000810r 2  A9 rr          lda #>ScoreLabel
+000812r 2  85 57          sta WORK_PTR+1
+000814r 2  A9 00          lda #0
+000816r 2  A2 01          ldx #1
+000818r 2  4C rr rr       jmp DrawString
 00081Br 2               
-00081Br 2               TitleText:
-00081Br 2  53 20 4E 20    .byte "S N A K E", $00
-00081Fr 2  41 20 4B 20  
-000823r 2  45 00        
-000825r 2               
-000825r 2               HighScoreLabel:
-000825r 2  48 49 47 48    .byte "HIGH SCORE: ", $00
-000829r 2  20 53 43 4F  
-00082Dr 2  52 45 3A 20  
-000832r 2               
-000832r 2               MoveHelpMsg:
-000832r 2  4D 4F 56 45    .byte "MOVE: WASD / ARROWS / JOYSTICK", $00
-000836r 2  3A 20 57 41  
-00083Ar 2  53 44 20 2F  
+00081Br 2               ; DrawGameOverOverlay — draw a highlighted box centered on the board with
+00081Br 2               ; the final score and, if this round set a new record, a callout for it
+00081Br 2               ; (otherwise the standing high score, for reference).
+00081Br 2               DrawGameOverOverlay:
+00081Br 2  20 rr rr       jsr DrawBoxFrame
+00081Er 2  20 rr rr       jsr ClearBoxInterior
+000821r 2               
+000821r 2  A9 rr          lda #<GameOverTitleMsg
+000823r 2  85 56          sta WORK_PTR
+000825r 2  A9 rr          lda #>GameOverTitleMsg
+000827r 2  85 57          sta WORK_PTR+1
+000829r 2  A9 0A          lda #(BOX_TOP+2)
+00082Br 2  A2 0B          ldx #11
+00082Dr 2  20 rr rr       jsr DrawString
+000830r 2               
+000830r 2  A9 rr          lda #<ScoreLabel2
+000832r 2  85 56          sta WORK_PTR
+000834r 2  A9 rr          lda #>ScoreLabel2
+000836r 2  85 57          sta WORK_PTR+1
+000838r 2  A9 0B          lda #(BOX_TOP+3)
+00083Ar 2  A2 0A          ldx #10
+00083Cr 2  20 rr rr       jsr DrawString
+00083Fr 2  A5 44          lda SCORE_LO
+000841r 2  A6 45          ldx SCORE_HI
+000843r 2  20 rr rr       jsr ValueToDigits
+000846r 2  A9 0B          lda #(BOX_TOP+3)
+000848r 2  A2 11          ldx #17
+00084Ar 2  20 rr rr       jsr DrawDigitBuf
+00084Dr 2               
+00084Dr 2  A5 67          lda NEW_HIGH_FLAG
+00084Fr 2  F0 12          beq @showHighRef
 000851r 2               
-000851r 2               StartPromptMsg:
-000851r 2  50 52 45 53    .byte "PRESS SPACE OR FIRE TO START", $00
-000855r 2  53 20 53 50  
-000859r 2  41 43 45 20  
-00086Er 2               
-00086Er 1               
-00086Er 1               GAME_SPEED_LO = 15    ; SysDelay units are centiseconds (10ms) -> ~150ms/tick
-00086Er 1               GAME_SPEED_HI = 0
-00086Er 1               
-00086Er 1               ; =============================================================================
-00086Er 1               ;   CartReset — cartridge entry point
-00086Er 1               ; =============================================================================
-00086Er 1               CartReset:
-00086Er 1  A2 FF          ldx #$ff
-000870r 1  9A             txs                            ; Reset the stack pointer
-000871r 1  20 78 A0       jsr KernalInit                 ; Initialize all detected hardware
-000874r 1               
-000874r 1  20 30 A0       jsr Beep                       ; Startup beep (skips silently if no SID)
-000877r 1  58             cli                             ; Enable interrupts
-000878r 1               
-000878r 1  20 15 A0       jsr InitVideo                  ; side effect: loads CP437 font into VRAM,
-00087Br 1                                                  ; which InitGraphicsI below depends on
-00087Br 1  20 rr rr       jsr LoadHighScore               ; from RTC NVRAM if fitted, else 0 (session-only)
-00087Er 1               
-00087Er 1  A9 01          lda #1
-000880r 1  20 0F A0       jsr SetIOMode                   ; serial, so Chrin's echo can't smear our VRAM
-000883r 1               
-000883r 1  20 rr rr       jsr InitGraphicsI               ; also draws the border and blanks the screen
-000886r 1  20 rr rr       jsr DrawTitleScreen              ; same tiles/colors/palette as gameplay
-000889r 1               
-000889r 1  20 rr rr       jsr WaitForStart                ; blocks until fire/space, seeds RNG_STATE
-00088Cr 1               
-00088Cr 1  20 rr rr       jsr NewGame
-00088Fr 1               
-00088Fr 1               ; -----------------------------------------------------------------------------
-00088Fr 1               ; MainLoop
-00088Fr 1               ; -----------------------------------------------------------------------------
-00088Fr 1               MainLoop:
-00088Fr 1  20 rr rr       jsr PollInput
-000892r 1               
-000892r 1  A5 3A          lda GAME_STATE
-000894r 1  C9 01          cmp #STATE_PLAYING
-000896r 1  D0 14          bne @notPlaying
-000898r 1  A5 62          lda FIRE_EDGE
-00089Ar 1  F0 0A          beq @doTick
-00089Cr 1  A9 03          lda #STATE_PAUSED
-00089Er 1  85 3A          sta GAME_STATE
-0008A0r 1  20 rr rr       jsr DrawPauseMessage
-0008A3r 1  4C rr rr       jmp @delay
-0008A6r 1               @doTick:
-0008A6r 1  20 rr rr       jsr Tick
-0008A9r 1  4C rr rr       jmp @delay
-0008ACr 1               
-0008ACr 1               @notPlaying:
-0008ACr 1  C9 03          cmp #STATE_PAUSED
-0008AEr 1  D0 10          bne @notPaused
-0008B0r 1  A5 62          lda FIRE_EDGE
-0008B2r 1  F0 17          beq @delay
-0008B4r 1  A9 01          lda #STATE_PLAYING
-0008B6r 1  85 3A          sta GAME_STATE
-0008B8r 1  A9 17          lda #23
-0008BAr 1  20 rr rr       jsr ClearRow
-0008BDr 1  4C rr rr       jmp @delay
-0008C0r 1               
-0008C0r 1               @notPaused:
-0008C0r 1  C9 02          cmp #STATE_GAMEOVER
-0008C2r 1  D0 07          bne @delay
-0008C4r 1  A5 62          lda FIRE_EDGE
-0008C6r 1  F0 03          beq @delay
-0008C8r 1  20 rr rr       jsr NewGame
-0008CBr 1               
-0008CBr 1               @delay:
-0008CBr 1  A9 0F          lda #GAME_SPEED_LO
-0008CDr 1  A2 00          ldx #GAME_SPEED_HI
-0008CFr 1  20 75 A0       jsr SysDelay
-0008D2r 1  4C rr rr       jmp MainLoop
-0008D5r 1               
-0008D5r 1               ; =============================================================================
-0008D5r 1               ;   IRQ / NMI handlers — cartridge owns the vectors, so it must supply these.
-0008D5r 1               ;   Both just dispatch through the RAM vectors KernalInit already configured
-0008D5r 1               ;   (default keyboard-scanning IRQ handler, no-op NMI).
-0008D5r 1               ; =============================================================================
-0008D5r 1               
-0008D5r 1               IrqTrampoline:
-0008D5r 1  6C 00 03       jmp (IRQ_PTR)
-0008D8r 1               
-0008D8r 1               NmiTrampoline:
-0008D8r 1  6C 04 03       jmp (NMI_PTR)
-0008DBr 1               
-0008DBr 1               ; =============================================================================
-0008DBr 1               ;   CPU Vectors — cart owns $FFFA-$FFFF
-0008DBr 1               ; =============================================================================
-0008DBr 1               
-0008DBr 1               .segment "VECTORS"
+000851r 2  A9 rr          lda #<NewHighMsg
+000853r 2  85 56          sta WORK_PTR
+000855r 2  A9 rr          lda #>NewHighMsg
+000857r 2  85 57          sta WORK_PTR+1
+000859r 2  A9 0C          lda #(BOX_TOP+4)
+00085Br 2  A2 08          ldx #8
+00085Dr 2  20 rr rr       jsr DrawString
+000860r 2  4C rr rr       jmp @afterHighLine
+000863r 2               
+000863r 2               @showHighRef:
+000863r 2  A9 rr          lda #<HighLabelMsg
+000865r 2  85 56          sta WORK_PTR
+000867r 2  A9 rr          lda #>HighLabelMsg
+000869r 2  85 57          sta WORK_PTR+1
+00086Br 2  A9 0C          lda #(BOX_TOP+4)
+00086Dr 2  A2 0A          ldx #10
+00086Fr 2  20 rr rr       jsr DrawString
+000872r 2  A5 65          lda HIGH_SCORE_LO
+000874r 2  A6 66          ldx HIGH_SCORE_HI
+000876r 2  20 rr rr       jsr ValueToDigits
+000879r 2  A9 0C          lda #(BOX_TOP+4)
+00087Br 2  A2 11          ldx #17
+00087Dr 2  20 rr rr       jsr DrawDigitBuf
+000880r 2               
+000880r 2               @afterHighLine:
+000880r 2  A9 rr          lda #<PressAMsg
+000882r 2  85 56          sta WORK_PTR
+000884r 2  A9 rr          lda #>PressAMsg
+000886r 2  85 57          sta WORK_PTR+1
+000888r 2  A9 0D          lda #(BOX_TOP+5)
+00088Ar 2  A2 0C          ldx #12
+00088Cr 2  4C rr rr       jmp DrawString
+00088Fr 2               
+00088Fr 2               ; DrawPauseMessage — draw the paused text at row 23
+00088Fr 2               DrawPauseMessage:
+00088Fr 2  A9 rr          lda #<PauseMsg
+000891r 2  85 56          sta WORK_PTR
+000893r 2  A9 rr          lda #>PauseMsg
+000895r 2  85 57          sta WORK_PTR+1
+000897r 2  A9 17          lda #23
+000899r 2  A2 07          ldx #7
+00089Br 2  4C rr rr       jmp DrawString
+00089Er 2               
+00089Er 2               ScoreLabel:
+00089Er 2  53 43 4F 52    .byte "SCORE:", $00
+0008A2r 2  45 3A 00     
+0008A5r 2               
+0008A5r 2               PauseMsg:
+0008A5r 2  50 41 55 53    .byte "PAUSED - PRESS A", $00
+0008A9r 2  45 44 20 2D  
+0008ADr 2  20 50 52 45  
+0008B6r 2               
+0008B6r 2               GameOverTitleMsg:
+0008B6r 2  47 41 4D 45    .byte "GAME OVER", $00
+0008BAr 2  20 4F 56 45  
+0008BEr 2  52 00        
+0008C0r 2               
+0008C0r 2               ScoreLabel2:
+0008C0r 2  53 43 4F 52    .byte "SCORE: ", $00
+0008C4r 2  45 3A 20 00  
+0008C8r 2               
+0008C8r 2               NewHighMsg:
+0008C8r 2  4E 45 57 20    .byte "NEW HIGH SCORE!", $00
+0008CCr 2  48 49 47 48  
+0008D0r 2  20 53 43 4F  
+0008D8r 2               
+0008D8r 2               HighLabelMsg:
+0008D8r 2  48 49 47 48    .byte "HIGH:  ", $00   ; extra space vs "SCORE: " so the digits line up
+0008DCr 2  3A 20 20 00  
+0008E0r 2               
+0008E0r 2               PressAMsg:
+0008E0r 2  50 52 45 53    .byte "PRESS A", $00
+0008E4r 2  53 20 41 00  
+0008E8r 2               
+0008E8r 2               TitleText:
+0008E8r 2  53 20 4E 20    .byte "S N A K E", $00
+0008ECr 2  41 20 4B 20  
+0008F0r 2  45 00        
+0008F2r 2               
+0008F2r 2               HighScoreLabel:
+0008F2r 2  48 49 47 48    .byte "HIGH SCORE: ", $00
+0008F6r 2  20 53 43 4F  
+0008FAr 2  52 45 3A 20  
+0008FFr 2               
+0008FFr 2               StartPromptMsg:
+0008FFr 2  50 52 45 53    .byte "PRESS A TO START", $00
+000903r 2  53 20 41 20  
+000907r 2  54 4F 20 53  
+000910r 2               
+000910r 1               
+000910r 1               GAME_SPEED_LO = 15    ; SysDelay units are centiseconds (10ms) -> ~150ms/tick
+000910r 1               GAME_SPEED_HI = 0
+000910r 1               
+000910r 1               ; =============================================================================
+000910r 1               ;   CartReset — cartridge entry point
+000910r 1               ; =============================================================================
+000910r 1               CartReset:
+000910r 1  A2 FF          ldx #$ff
+000912r 1  9A             txs                            ; Reset the stack pointer
+000913r 1  20 78 A0       jsr KernalInit                 ; Initialize all detected hardware
+000916r 1               
+000916r 1  20 30 A0       jsr Beep                       ; Startup beep (skips silently if no SID)
+000919r 1  58             cli                             ; Enable interrupts
+00091Ar 1               
+00091Ar 1  20 15 A0       jsr InitVideo                  ; side effect: loads CP437 font into VRAM,
+00091Dr 1                                                  ; which InitGraphicsI below depends on
+00091Dr 1  20 rr rr       jsr LoadHighScore               ; from RTC NVRAM if fitted, else 0 (session-only)
+000920r 1               
+000920r 1  A9 00          lda #0
+000922r 1  20 0F A0       jsr SetIOMode                   ; video/local keyboard -- Chrin's SOURCE
+000925r 1                                                   ; follows IO_MODE too, not just Chrout's
+000925r 1                                                   ; destination, so the WASD/arrow-key
+000925r 1                                                   ; fallback (DrainKeyboardCombined, which
+000925r 1                                                   ; calls Chrin) would silently read from
+000925r 1                                                   ; the serial port instead of the local
+000925r 1                                                   ; keyboard if this were left at serial
+000925r 1                                                   ; mode. This does mean the NO VIDEO CARD
+000925r 1                                                   ; fallback message below is no longer
+000925r 1                                                   ; visible over serial if it ever fires --
+000925r 1                                                   ; accepted, since the cartridge is
+000925r 1                                                   ; unplayable either way with no video
+000925r 1                                                   ; card (every screen is graphical), and
+000925r 1                                                   ; keyboard input needs to actually work
+000925r 1                                                   ; for the overwhelmingly common case
+000925r 1                                                   ; where a video card IS fitted
+000925r 1               
+000925r 1  20 rr rr       jsr InitGraphicsI               ; also draws the border and blanks the screen
+000928r 1  20 rr rr       jsr DrawTitleScreen              ; same tiles/colors/palette as gameplay
+00092Br 1               
+00092Br 1  20 rr rr       jsr WaitForStart                ; blocks until the A button, seeds RNG_STATE
+00092Er 1               
+00092Er 1  20 rr rr       jsr NewGame
+000931r 1               
+000931r 1               ; -----------------------------------------------------------------------------
+000931r 1               ; MainLoop
+000931r 1               ; -----------------------------------------------------------------------------
+000931r 1               MainLoop:
+000931r 1  20 rr rr       jsr PollInput
+000934r 1               
+000934r 1  A5 3A          lda GAME_STATE
+000936r 1  C9 01          cmp #STATE_PLAYING
+000938r 1  D0 14          bne @notPlaying
+00093Ar 1  A5 62          lda FIRE_EDGE
+00093Cr 1  F0 0A          beq @doTick
+00093Er 1  A9 03          lda #STATE_PAUSED
+000940r 1  85 3A          sta GAME_STATE
+000942r 1  20 rr rr       jsr DrawPauseMessage
+000945r 1  4C rr rr       jmp @delay
+000948r 1               @doTick:
+000948r 1  20 rr rr       jsr Tick
+00094Br 1  4C rr rr       jmp @delay
+00094Er 1               
+00094Er 1               @notPlaying:
+00094Er 1  C9 03          cmp #STATE_PAUSED
+000950r 1  D0 10          bne @notPaused
+000952r 1  A5 62          lda FIRE_EDGE
+000954r 1  F0 17          beq @delay
+000956r 1  A9 01          lda #STATE_PLAYING
+000958r 1  85 3A          sta GAME_STATE
+00095Ar 1  A9 17          lda #23
+00095Cr 1  20 rr rr       jsr ClearRow
+00095Fr 1  4C rr rr       jmp @delay
+000962r 1               
+000962r 1               @notPaused:
+000962r 1  C9 02          cmp #STATE_GAMEOVER
+000964r 1  D0 07          bne @delay
+000966r 1  A5 62          lda FIRE_EDGE
+000968r 1  F0 03          beq @delay
+00096Ar 1  20 rr rr       jsr NewGame
+00096Dr 1               
+00096Dr 1               @delay:
+00096Dr 1  A9 0F          lda #GAME_SPEED_LO
+00096Fr 1  A2 00          ldx #GAME_SPEED_HI
+000971r 1  20 75 A0       jsr SysDelay
+000974r 1  4C rr rr       jmp MainLoop
+000977r 1               
+000977r 1               ; =============================================================================
+000977r 1               ;   IRQ / NMI handlers — cartridge owns the vectors, so it must supply these.
+000977r 1               ;   Both just dispatch through the RAM vectors KernalInit already configured
+000977r 1               ;   (default keyboard-scanning IRQ handler, no-op NMI).
+000977r 1               ; =============================================================================
+000977r 1               
+000977r 1               IrqTrampoline:
+000977r 1  6C 00 03       jmp (IRQ_PTR)
+00097Ar 1               
+00097Ar 1               NmiTrampoline:
+00097Ar 1  6C 04 03       jmp (NMI_PTR)
+00097Dr 1               
+00097Dr 1               ; =============================================================================
+00097Dr 1               ;   CPU Vectors — cart owns $FFFA-$FFFF
+00097Dr 1               ; =============================================================================
+00097Dr 1               
+00097Dr 1               .segment "VECTORS"
 000000r 1               
 000000r 1  rr rr        .word   NmiTrampoline
 000002r 1  rr rr        .word   CartReset

@@ -18,23 +18,8 @@ This file is for issues discovered in the 6502 emulator itself, not in this repo
 
 ## Logged Issues
 
-### 001 - Fullscreen viewport loses centering after app is backgrounded
+### 001 - UI controls do not auto-hide when idle
 - Bug ID: 001
-- Summary: When the emulator is running in fullscreen, the game display loses its centered positioning after the app is swiped away and brought back, especially after repeated transitions.
-- Emulator version / commit: Not recorded
-- Platform / environment: macOS, likely Electron-based fullscreen window behavior
-- Steps to reproduce:
-  1. Start the emulator in fullscreen.
-  2. Open another app or swipe the emulator away from the foreground.
-  3. Return to the emulator.
-  4. Repeat a few times.
-- Expected behavior: The game screen remains centered and stable after returning from the background.
-- Actual behavior: The screen appears offset or no longer centered after the window is reactivated.
-- Severity: Medium
-- Notes: May be related to Electron window redraw / fullscreen state handling.
-
-### 002 - UI controls do not auto-hide when idle
-- Bug ID: 002
 - Summary: The emulator UI does not automatically hide or reduce visibility of buttons and controls when the mouse is not moving or hovering.
 - Emulator version / commit: Not recorded
 - Platform / environment: macOS, desktop UI
@@ -47,22 +32,9 @@ This file is for issues discovered in the 6502 emulator itself, not in this repo
 - Severity: Low
 - Notes: This may be a UX enhancement but is worth tracking as a usability issue.
 
-### 003 - Clickable controls should use pointer cursor
-- Bug ID: 003
-- Summary: Interactive controls do not visibly indicate that they are clickable.
-- Emulator version / commit: Not recorded
-- Platform / environment: macOS, desktop UI
-- Steps to reproduce:
-  1. Hover over buttons or other clickable UI elements.
-  2. Observe the cursor style.
-- Expected behavior: The cursor should change to a pointer when hovering over clickable controls.
-- Actual behavior: The cursor does not change, making the controls feel less interactive.
-- Severity: Low
-- Notes: This is a small but noticeable usability issue.
-
-### 004 - Tooltips appear at the wrong location after CRT selection
-- Bug ID: 004
-- Summary: Tooltips do not appear in the correct place when interacting with the CRT load UI.
+### 002 - Some tooltips appear at the wrong location after CRT selection
+- Bug ID: 002
+- Summary: Some tooltips in the CRT/cart loading UI do not appear in the correct place, while others do.
 - Emulator version / commit: Not recorded
 - Platform / environment: macOS, desktop UI
 - Steps to reproduce:
@@ -70,41 +42,13 @@ This file is for issues discovered in the 6502 emulator itself, not in this repo
   2. Hover or trigger the tooltip.
   3. Select a CRT entry.
   4. Observe where the tooltip appears.
-- Expected behavior: The tooltip should appear near the actual control or button that triggered it.
-- Actual behavior: The tooltip appears after selection and is positioned at the current cursor location rather than the control.
+- Expected behavior: Every tooltip should appear near the actual control or button that triggered it.
+- Actual behavior: The load cart button tooltip still appears after selection and is positioned at the current cursor location rather than the control. Other tooltips (for example, Power Cycle and Reset) appear correctly.
 - Severity: Medium
-- Notes: This looks like a UI event / positioning bug rather than a core emulation issue.
+- Notes: This appears to be a control-specific UI event/positioning bug rather than a core emulation issue, since some controls already position tooltips correctly.
 
-### 005 - Debug server port and token are not copyable
-- Bug ID: 005
-- Summary: The debug server connection details cannot be copied easily from the UI.
-- Emulator version / commit: Not recorded
-- Platform / environment: macOS, desktop UI
-- Steps to reproduce:
-  1. Open the debug server panel.
-  2. Try to copy the displayed port or token.
-  3. Observe whether selection/copy works.
-- Expected behavior: The port and token should be copyable via normal UI copy actions, ideally with a dedicated copy button.
-- Actual behavior: The values are not readily copyable and require awkward selection behavior.
-- Severity: Medium
-- Notes: A simple copy button or click-to-copy interaction would improve usability significantly.
-
-### 006 - Joypad input mapping should support WASD and arrow keys
-- Bug ID: 006
-- Summary: The emulator does not expose Joy 1 and Joy 2 as configurable input devices in a way that supports common keyboard layouts such as WASD and arrows, which is especially problematic on MacBook keyboards without a numpad.
-- Emulator version / commit: Not recorded
-- Platform / environment: macOS, desktop keyboard input
-- Steps to reproduce:
-  1. Launch the emulator and attempt to configure Joy 1 or Joy 2 input.
-  2. Try to assign movement keys using WASD or arrow keys.
-  3. Notice that the input mapping does not provide a practical option for these layouts.
-- Expected behavior: Joy 1 and Joy 2 should be configurable with common keyboard layouts such as WASD and arrow keys, and the fire button mapping should be clear and usable.
-- Actual behavior: The emulator requires explicit or limited input mapping behavior, making keyboard play awkward on laptops without a numpad.
-- Severity: Medium
-- Notes: The fire-button assignment for the two-button layout is still unclear and may need a more intuitive default or customization option.
-
-### 007 - Unloading a cartridge that left the VDP in a custom graphics mode corrupts the following BASIC/Monitor boot screen
-- Bug ID: 007
+### 003 - Unloading a cartridge that left the VDP in a custom graphics mode corrupts the following BASIC/Monitor boot screen
+- Bug ID: 003
 - Summary: If a cartridge was running in a TMS9918 graphics mode (e.g. Graphics I) with a custom palette/pattern table, unloading it (or reloading a different cart) and warm-resetting back into BASIC/Monitor renders a corrupted, garbled screen instead of a clean boot — readable text fragments mixed with stray CP437 glyphs, wrong colors/background.
 - Emulator version / commit: 2.6.2 (Electron)
 - Platform / environment: macOS, desktop app (also checked against the headless CLI's source, same version)
@@ -117,3 +61,43 @@ This file is for issues discovered in the 6502 emulator itself, not in this repo
 - Actual behavior: The boot screen renders corrupted — a mix of legible leftover text and garbled characters, often with the wrong backdrop color.
 - Severity: Medium
 - Notes: Root-caused this together in a debugging session (connected live via the Debug Server to the running app while reproducing it). The likely mechanism: `unloadCart()` in `src/renderer/src/stores/emulator.ts` calls `machine.unloadCart()` then `session.reset(false)` — a **warm** reset. `Video.reset(coldStart)` in `src/core/IO/Video.ts` only clears VRAM `if (coldStart)`, so a warm reset leaves the previous cartridge's Graphics I VRAM (custom pattern table, color table, name table) fully intact. BASIC/Monitor's own boot sequence doesn't appear to fully reprogram the VDP back to its expected default state before drawing, so it ends up rendering against stale, wrong-mode VRAM. A workaround that avoids it: use Power Cycle (which does `vram.fill(0)` on cold start) instead of Reset when unloading or swapping cartridges that use custom graphics modes. Possible fixes: have BASIC/Monitor's boot path fully reinitialize the VDP (registers + color table, not just the character set) before drawing anything, regardless of prior state; or have cartridge unload/swap force a cold reset instead of warm.
+
+### 004 - Joy key selection does not persist across emulator restart
+- Bug ID: 004
+- Summary: Joystick key mapping settings are lost after closing and reopening the emulator.
+- Emulator version / commit: Not recorded
+- Platform / environment: macOS, desktop UI
+- Steps to reproduce:
+  1. Open input settings and set Joy1 or Joy2 key mode (for example Num Pad, WASD, or Arrows).
+  2. Close the emulator.
+  3. Reopen the emulator.
+  4. Check the Joy key selection.
+- Expected behavior: Joy key selections should be saved and restored on next launch.
+- Actual behavior: Joy key selection resets and does not persist across app restarts.
+- Severity: Medium
+- Notes: This appears to be a settings persistence issue in the UI/preferences layer.
+
+---
+
+## Feature Requests
+
+### FR-001 - Make Joy1 and Joy2 controls in the bottom panel clickable for quick mapping
+- Request ID: FR-001
+- Summary: The Joy1 and Joy2 indicators in the bottom screen panel should be pressable and open the key mode picker directly.
+- Desired behavior:
+  1. Clicking Joy1 opens a menu for Joy1 mapping mode.
+  2. Clicking Joy2 opens a menu for Joy2 mapping mode.
+  3. Menu options include Num Pad, WASD, and Arrows.
+  4. The currently active option is clearly highlighted.
+- Value: Faster access to control setup without navigating deeper settings menus.
+- Notes: This should complement, not replace, existing settings controls.
+
+### FR-002 - Clarify and separate Fire key mappings per control scheme
+- Request ID: FR-002
+- Summary: Fire key behavior is unclear for Num Pad and WASD schemes, especially when mappings can overlap.
+- Desired behavior:
+  1. Show the Fire key for each scheme explicitly in UI/help text.
+  2. Prevent conflicting defaults where practical, or warn clearly when conflicts exist.
+  3. Allow independent Fire mapping per scheme and per joystick when supported.
+- Value: Reduces confusion and accidental key conflicts during gameplay.
+- Notes: Current behavior suggests ambiguity around shared key space for Fire across schemes.

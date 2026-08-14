@@ -4,8 +4,10 @@
 ;   A classic grid-based Snake game for the AC6502 family, built as a
 ;   standalone ROM cartridge (6502-CRT template). Boots directly, no BASIC.
 ;
-;   Controls: WASD, arrow keys, or joystick 1 to move. Space or fire to
-;   start / restart, and to pause / resume during play.
+;   Controls: joystick, either port, to move, with WASD or arrow keys as a
+;   fallback when the joystick shows no direction (e.g. no GPIO card
+;   fitted). The A button (or space) to start/restart, and to pause/resume
+;   during play.
 ; =============================================================================
 
 .setcpu "65C02"
@@ -40,13 +42,28 @@ CartReset:
                                    ; which InitGraphicsI below depends on
   jsr LoadHighScore               ; from RTC NVRAM if fitted, else 0 (session-only)
 
-  lda #1
-  jsr SetIOMode                   ; serial, so Chrin's echo can't smear our VRAM
+  lda #0
+  jsr SetIOMode                   ; video/local keyboard -- Chrin's SOURCE
+                                    ; follows IO_MODE too, not just Chrout's
+                                    ; destination, so the WASD/arrow-key
+                                    ; fallback (DrainKeyboardCombined, which
+                                    ; calls Chrin) would silently read from
+                                    ; the serial port instead of the local
+                                    ; keyboard if this were left at serial
+                                    ; mode. This does mean the NO VIDEO CARD
+                                    ; fallback message below is no longer
+                                    ; visible over serial if it ever fires --
+                                    ; accepted, since the cartridge is
+                                    ; unplayable either way with no video
+                                    ; card (every screen is graphical), and
+                                    ; keyboard input needs to actually work
+                                    ; for the overwhelmingly common case
+                                    ; where a video card IS fitted
 
   jsr InitGraphicsI               ; also draws the border and blanks the screen
   jsr DrawTitleScreen              ; same tiles/colors/palette as gameplay
 
-  jsr WaitForStart                ; blocks until fire/space, seeds RNG_STATE
+  jsr WaitForStart                ; blocks until the A button, seeds RNG_STATE
 
   jsr NewGame
 
