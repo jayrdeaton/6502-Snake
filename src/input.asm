@@ -1,5 +1,5 @@
 ; =============================================================================
-;   input.asm — joystick-first polling, keyboard fallback (WASD/arrows)
+;   input.asm - joystick-first polling, keyboard fallback (WASD/arrows)
 ; =============================================================================
 ;   Movement and the A button come from the joystick when one is present and
 ;   being used; WASD or arrow keys act as a fallback for a single player
@@ -7,7 +7,7 @@
 ;   card is fitted at all). Joystick and keyboard are never blended within
 ;   the same poll: if the joystick shows any direction, that direction wins
 ;   outright and the keyboard isn't even consulted for direction. The fire
-;   button is the one exception — joystick A held OR keyboard space seen
+;   button is the one exception - joystick A held OR keyboard space seen
 ;   this drain, either sets START_PRESSED, independent of which source won
 ;   the direction for this poll.
 ;
@@ -28,7 +28,7 @@
 .segment "CART"
 
 ; -----------------------------------------------------------------------------
-; PollInput — sample joystick 1 and 2 (combined) for movement and the A
+; PollInput - sample joystick 1 and 2 (combined) for movement and the A
 ; button; fall back to the keyboard (WASD/arrows/space) only when the
 ; joystick shows no direction this poll. Safe to call every frame regardless
 ; of GAME_STATE.
@@ -71,7 +71,7 @@ PollInput:
 @jNotA:
 
   ; Keyboard fallback: only consulted when the joystick showed NO direction
-  ; this poll (all four direction bits high in JOY_STATE) — joystick always
+  ; this poll (all four direction bits high in JOY_STATE) - joystick always
   ; wins outright when it shows anything, per the priority rule above.
   lda JOY_STATE
   and #(JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT)

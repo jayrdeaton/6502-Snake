@@ -1,5 +1,5 @@
 ; =============================================================================
-;   vdp.asm — TMS9918 Graphics I mode setup and drawing primitives
+;   vdp.asm - TMS9918 Graphics I mode setup and drawing primitives
 ; =============================================================================
 ;   Port protocol (from 6502.inc, verified against the live BIOS source):
 ;     Set VRAM write address: addr_lo -> VC_REG, then (addr_hi | $40) -> VC_REG
@@ -9,14 +9,14 @@
 .segment "CART"
 
 ; -----------------------------------------------------------------------------
-; VdpWriteReg — write one VDP mode register
+; VdpWriteReg - write one VDP mode register
 ; In: A = value, X = register number (0-7)
 ;
 ; The two writes below must land back-to-back with nothing else touching
 ; VC_REG/VC_STATUS in between, or the chip's write-stage latch (which byte
 ; is expected next) gets out of sync with ours. The VDP itself is an IRQ
 ; source, and reading its status port (the same address as VC_REG) resets
-; that latch — so an interrupt landing between these two writes desyncs
+; that latch - so an interrupt landing between these two writes desyncs
 ; every VDP write that follows, not just this one. PHP/SEI/PLP (not raw
 ; SEI/CLI) so this composes correctly when called from an already-atomic
 ; caller like DrawTile below.
@@ -32,9 +32,9 @@ VdpWriteReg:
   rts
 
 ; -----------------------------------------------------------------------------
-; VdpSetAddr — set the VRAM read/write pointer
+; VdpSetAddr - set the VRAM read/write pointer
 ; In: A = address low byte, X = address high byte
-; See the interrupt-safety note on VdpWriteReg above — same latch, same risk.
+; See the interrupt-safety note on VdpWriteReg above - same latch, same risk.
 ; -----------------------------------------------------------------------------
 VdpSetAddr:
   php
@@ -47,7 +47,7 @@ VdpSetAddr:
   rts
 
 ; -----------------------------------------------------------------------------
-; ComputeOffset — compute row*32+col into OFFSET_LO/OFFSET_HI
+; ComputeOffset - compute row*32+col into OFFSET_LO/OFFSET_HI
 ; In: A = row (0-23), X = col (0-31)
 ; Clobbers: A, Y
 ; -----------------------------------------------------------------------------
@@ -70,21 +70,21 @@ ComputeOffset:
   rts
 
 ; -----------------------------------------------------------------------------
-; VdpSetOffsetAddr — point the VRAM write pointer at name-table offset
+; VdpSetOffsetAddr - point the VRAM write pointer at name-table offset
 ; OFFSET_LO/OFFSET_HI (name table base is $0000, so address == offset)
 ; -----------------------------------------------------------------------------
 VdpSetOffsetAddr:
   lda OFFSET_LO
   ldx OFFSET_HI
-  jmp VdpSetAddr        ; tail call — VdpSetAddr's rts returns to our caller
+  jmp VdpSetAddr        ; tail call - VdpSetAddr's rts returns to our caller
 
 ; -----------------------------------------------------------------------------
-; DrawTile — draw a tile code into the name table at (row,col)
+; DrawTile - draw a tile code into the name table at (row,col)
 ; In: A = row, X = col, Y = tile code
 ;
 ; Also atomic end-to-end (not just the address-set half): an interrupt
 ; landing between the address-set and the data write is only harmless if
-; nothing else touches the VDP in between, which we can't assume — same
+; nothing else touches the VDP in between, which we can't assume - same
 ; reasoning as VdpWriteReg above.
 ; -----------------------------------------------------------------------------
 DrawTile:
@@ -100,7 +100,7 @@ DrawTile:
   rts
 
 ; -----------------------------------------------------------------------------
-; EraseTile — draw TILE_BLANK at (row,col)
+; EraseTile - draw TILE_BLANK at (row,col)
 ; In: A = row, X = col
 ; -----------------------------------------------------------------------------
 EraseTile:
@@ -108,7 +108,7 @@ EraseTile:
   jmp DrawTile
 
 ; -----------------------------------------------------------------------------
-; OccupancyPtr — point WORK_PTR at OCCUPANCY[row*32+col]
+; OccupancyPtr - point WORK_PTR at OCCUPANCY[row*32+col]
 ; In: A = row, X = col  (OCCUPANCY is page-aligned, so only the high byte
 ; needs the addition)
 ; -----------------------------------------------------------------------------
@@ -123,7 +123,7 @@ OccupancyPtr:
   rts
 
 ; -----------------------------------------------------------------------------
-; OccupancySet — write a value into OCCUPANCY[row,col]
+; OccupancySet - write a value into OCCUPANCY[row,col]
 ; In: A = row, X = col, Y = value
 ; -----------------------------------------------------------------------------
 OccupancySet:
@@ -136,7 +136,7 @@ OccupancySet:
   rts
 
 ; -----------------------------------------------------------------------------
-; OccupancyGet — read OCCUPANCY[row,col]
+; OccupancyGet - read OCCUPANCY[row,col]
 ; In: A = row, X = col
 ; Out: A = value
 ; -----------------------------------------------------------------------------
@@ -147,7 +147,7 @@ OccupancyGet:
   rts
 
 ; -----------------------------------------------------------------------------
-; InitOccupancy — clear the whole 768-byte occupancy grid to 0
+; InitOccupancy - clear the whole 768-byte occupancy grid to 0
 ; -----------------------------------------------------------------------------
 InitOccupancy:
   lda #<OCCUPANCY
@@ -168,7 +168,7 @@ InitOccupancy:
   rts
 
 ; -----------------------------------------------------------------------------
-; DrawBorder — draw the wall tile around the playfield, both visually and
+; DrawBorder - draw the wall tile around the playfield, both visually and
 ; in the OCCUPANCY grid (top/bottom rows across all columns, then the two
 ; side columns for the interior rows).
 ; -----------------------------------------------------------------------------
@@ -226,7 +226,7 @@ DrawBorder:
   rts
 
 ; -----------------------------------------------------------------------------
-; DrawBoxFrame — draw a TILE_FRAME outline around the game-over overlay box
+; DrawBoxFrame - draw a TILE_FRAME outline around the game-over overlay box
 ; -----------------------------------------------------------------------------
 DrawBoxFrame:
   stz SCAN_TMP
@@ -275,7 +275,7 @@ DrawBoxFrame:
   rts
 
 ; -----------------------------------------------------------------------------
-; ClearBoxInterior — blank the overlay box's interior (excludes its 1-tile
+; ClearBoxInterior - blank the overlay box's interior (excludes its 1-tile
 ; frame border), erasing whatever snake/food was on the board underneath.
 ; -----------------------------------------------------------------------------
 ClearBoxInterior:
@@ -306,7 +306,7 @@ ClearBoxInterior:
   rts
 
 ; -----------------------------------------------------------------------------
-; WriteTilePatterns — copy the four custom 8x8 patterns into VRAM
+; WriteTilePatterns - copy the four custom 8x8 patterns into VRAM
 ; -----------------------------------------------------------------------------
 WriteTilePatterns:
   php
@@ -369,7 +369,7 @@ WriteTilePatterns:
   rts
 
 ; -----------------------------------------------------------------------------
-; InitGraphicsI — switch the VDP into Graphics I mode and build the screen
+; InitGraphicsI - switch the VDP into Graphics I mode and build the screen
 ; -----------------------------------------------------------------------------
 InitGraphicsI:
   lda HW_PRESENT
@@ -383,7 +383,7 @@ InitGraphicsI:
   bra @haltLoop
 
 @haveVideo:
-  php                      ; outer critical section for the whole setup —
+  php                      ; outer critical section for the whole setup -
   sei                      ; covers the inline register/color-table writes
                             ; below that aren't wrapped by a called routine
   lda #$80
@@ -472,7 +472,7 @@ InitGraphicsI:
   rts
 
 ; -----------------------------------------------------------------------------
-; ClearScreen — fill all 768 name-table cells with TILE_BLANK. Called once
+; ClearScreen - fill all 768 name-table cells with TILE_BLANK. Called once
 ; from InitGraphicsI, and again from NewGame on every restart so a fresh
 ; game never shows the previous game's leftover snake/food tiles.
 ; -----------------------------------------------------------------------------

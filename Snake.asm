@@ -1,5 +1,5 @@
 ; =============================================================================
-;   Snake.asm — cartridge entry point, title screen, and main loop
+;   Snake.asm - cartridge entry point, title screen, and main loop
 ; =============================================================================
 ;   A classic grid-based Snake game for the AC6502 family, built as a
 ;   standalone ROM cartridge (6502-CRT template). Boots directly, no BASIC.
@@ -28,7 +28,7 @@ GAME_SPEED_LO = 15    ; SysDelay units are centiseconds (10ms) -> ~150ms/tick
 GAME_SPEED_HI = 0
 
 ; =============================================================================
-;   CartReset — cartridge entry point
+;   CartReset - cartridge entry point
 ; =============================================================================
 CartReset:
   ldx #$ff
@@ -111,7 +111,7 @@ MainLoop:
   jmp MainLoop
 
 ; =============================================================================
-;   IRQ / NMI handlers — cartridge owns the vectors, so it must supply these.
+;   IRQ / NMI handlers - cartridge owns the vectors, so it must supply these.
 ;   Both just dispatch through the RAM vectors KernalInit already configured
 ;   (default keyboard-scanning IRQ handler, no-op NMI).
 ; =============================================================================
@@ -123,7 +123,7 @@ NmiTrampoline:
   jmp (NMI_PTR)
 
 ; =============================================================================
-;   CPU Vectors — cart owns $FFFA-$FFFF
+;   CPU Vectors - cart owns $FFFA-$FFFF
 ; =============================================================================
 
 .segment "VECTORS"

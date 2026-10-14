@@ -1,5 +1,5 @@
 ; =============================================================================
-;   tiles.asm — Graphics I playfield constants and custom 8x8 tile patterns
+;   tiles.asm - Graphics I playfield constants and custom 8x8 tile patterns
 ; =============================================================================
 
 GRID_COLS       = 32
@@ -11,15 +11,15 @@ FIELD_RIGHT     = 30
 FIELD_TOP       = 2
 FIELD_BOTTOM    = 21
 
-; Tile codes — each in its own color group (group = code>>3) so it gets an
+; Tile codes - each in its own color group (group = code>>3) so it gets an
 ; independent fg/bg pair without disturbing the CP437 text glyphs used by
 ; the HUD and messages (groups 4-11 for space/digits/uppercase letters).
-TILE_BLANK      = $20    ; reused CP437 space glyph — untouched
+TILE_BLANK      = $20    ; reused CP437 space glyph - untouched
 TILE_HEAD       = $80    ; color group 16
 TILE_BODY       = $88    ; color group 17
 TILE_FOOD       = $90    ; color group 18
 TILE_WALL       = $98    ; color group 19
-TILE_FRAME      = $A0    ; color group 20 — game-over overlay box border
+TILE_FRAME      = $A0    ; color group 20 - game-over overlay box border
 
 COLOR_HEAD      = (TMS_LT_GREEN  << 4) | TMS_BLACK
 COLOR_BODY      = (TMS_MED_GREEN << 4) | TMS_BLACK

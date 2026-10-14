@@ -1,11 +1,11 @@
 ; =============================================================================
-;   game.asm — Snake state machine: title wait, tick logic, HUD, game over
+;   game.asm - Snake state machine: title wait, tick logic, HUD, game over
 ; =============================================================================
 
 .segment "CART"
 
 ; -----------------------------------------------------------------------------
-; DrawTitleScreen — draw the title screen in Graphics I, using the same
+; DrawTitleScreen - draw the title screen in Graphics I, using the same
 ; tiles/palette as gameplay (called once at boot, before WaitForStart, on
 ; top of the border InitGraphicsI already drew). Every line's column is
 ; computed for exact centering in the 32-wide grid.
@@ -22,7 +22,7 @@ DrawTitleScreen:
   ; snake + apple decoration, row 10: the same tiles used in gameplay, so
   ; the title screen reads as the same game, not a splash screen bolted
   ; on top of it. "S N A K E" above (cols 11-19) is the point of
-  ; reference — the body underlines the whole word and runs a couple
+  ; reference - the body underlines the whole word and runs a couple
   ; cells past it on both ends, with the head chasing a nearby apple.
   lda #9
   sta SCAN_TMP
@@ -69,7 +69,7 @@ DrawTitleScreen:
   jmp DrawString
 
 ; -----------------------------------------------------------------------------
-; WaitForStart — title-screen loop. Polls for the A button, seeds RNG_STATE
+; WaitForStart - title-screen loop. Polls for the A button, seeds RNG_STATE
 ; from elapsed loop iterations (reaction-time entropy) plus the RTC clock
 ; if fitted.
 ; -----------------------------------------------------------------------------
@@ -103,7 +103,7 @@ WaitForStart:
   rts
 
 ; -----------------------------------------------------------------------------
-; NewGame — reset the playfield and snake for a fresh game (also used to
+; NewGame - reset the playfield and snake for a fresh game (also used to
 ; restart from GAMEOVER; safe to call repeatedly since it fully redraws the
 ; occupancy grid and border rather than tracking incremental cleanup).
 ; -----------------------------------------------------------------------------
@@ -178,7 +178,7 @@ NewGame:
   rts
 
 ; -----------------------------------------------------------------------------
-; Tick — advance the snake one grid step
+; Tick - advance the snake one grid step
 ; -----------------------------------------------------------------------------
 Tick:
   jsr Sound_ServiceSilence
@@ -346,11 +346,11 @@ GameOver:
   rts
 
 ; -----------------------------------------------------------------------------
-; High score persistence — the cartridge ROM itself is read-only and can't
+; High score persistence - the cartridge ROM itself is read-only and can't
 ; store anything, but the RTC card (when fitted) carries 256 bytes of
 ; battery-backed NVRAM that survives power cycles. We use 3 of those bytes:
 ; a signature (to tell "our data" from an untouched/foreign NVRAM) plus the
-; 16-bit score. With no RTC card, the high score is still tracked — it just
+; 16-bit score. With no RTC card, the high score is still tracked - it just
 ; lives in RAM only and resets whenever the machine is powered off.
 ; -----------------------------------------------------------------------------
 NVRAM_SIG_ADDR      = 0
@@ -358,7 +358,7 @@ NVRAM_SCORE_LO_ADDR = 1
 NVRAM_SCORE_HI_ADDR = 2
 NVRAM_MAGIC         = $A5
 
-; LoadHighScore — call once at boot, before the title screen is drawn
+; LoadHighScore - call once at boot, before the title screen is drawn
 LoadHighScore:
   stz HIGH_SCORE_LO
   stz HIGH_SCORE_HI
@@ -378,7 +378,7 @@ LoadHighScore:
 @done:
   rts
 
-; SaveHighScore — call whenever HIGH_SCORE_LO/HI changes
+; SaveHighScore - call whenever HIGH_SCORE_LO/HI changes
 SaveHighScore:
   lda HW_PRESENT
   and #HW_RTC
@@ -396,7 +396,7 @@ SaveHighScore:
   rts
 
 ; -----------------------------------------------------------------------------
-; RespawnFood — place food on a random empty cell (bounded retry)
+; RespawnFood - place food on a random empty cell (bounded retry)
 ; -----------------------------------------------------------------------------
 RespawnFood:
   stz RETRY_CNT
@@ -433,7 +433,7 @@ RespawnFood:
 ; Decimal HUD helpers
 ; -----------------------------------------------------------------------------
 
-; Sub16IfGE — if SC_TMP >= SUB, subtract and return carry set; else carry clear
+; Sub16IfGE - if SC_TMP >= SUB, subtract and return carry set; else carry clear
 Sub16IfGE:
   lda SC_TMP_HI
   cmp SUB_HI
@@ -456,7 +456,7 @@ Sub16IfGE:
   clc
   rts
 
-; CountDigit — count how many times SUB can be subtracted from SC_TMP
+; CountDigit - count how many times SUB can be subtracted from SC_TMP
 ; Out: A = ASCII digit ('0'-'9')
 CountDigit:
   lda #0
@@ -472,7 +472,7 @@ CountDigit:
   adc #'0'
   rts
 
-; ValueToDigits — convert a 16-bit value into 5 ASCII digits in DIGIT_BUF
+; ValueToDigits - convert a 16-bit value into 5 ASCII digits in DIGIT_BUF
 ; In: A = value low, X = value high
 ValueToDigits:
   sta SC_TMP_LO
@@ -512,7 +512,7 @@ ValueToDigits:
   sta DIGIT_BUF+4
   rts
 
-; UpdateHud — redraw the score digits at row 0, columns 8-12
+; UpdateHud - redraw the score digits at row 0, columns 8-12
 UpdateHud:
   lda SCORE_LO
   ldx SCORE_HI
@@ -521,7 +521,7 @@ UpdateHud:
   ldx #8
   jmp DrawDigitBuf
 
-; DrawDigitBuf — draw the 5 ASCII digits currently in DIGIT_BUF at (row,col)
+; DrawDigitBuf - draw the 5 ASCII digits currently in DIGIT_BUF at (row,col)
 ; In: A = row, X = col
 DrawDigitBuf:
   sta MSG_ROW
@@ -541,7 +541,7 @@ DrawDigitBuf:
   bne @loop
   rts
 
-; DrawString — draw a null-terminated string starting at (row,col)
+; DrawString - draw a null-terminated string starting at (row,col)
 ; In: A = row, X = col, WORK_PTR/WORK_PTR+1 = string pointer
 DrawString:
   sta MSG_ROW
@@ -561,7 +561,7 @@ DrawString:
 @done:
   rts
 
-; ClearRow — blank an entire row
+; ClearRow - blank an entire row
 ; In: A = row
 ClearRow:
   sta MSG_ROW
@@ -576,7 +576,7 @@ ClearRow:
   bne @loop
   rts
 
-; DrawHudLabel — draw the static "SCORE:" label at row 0, column 1
+; DrawHudLabel - draw the static "SCORE:" label at row 0, column 1
 DrawHudLabel:
   lda #<ScoreLabel
   sta WORK_PTR
@@ -586,7 +586,7 @@ DrawHudLabel:
   ldx #1
   jmp DrawString
 
-; DrawGameOverOverlay — draw a highlighted box centered on the board with
+; DrawGameOverOverlay - draw a highlighted box centered on the board with
 ; the final score and, if this round set a new record, a callout for it
 ; (otherwise the standing high score, for reference).
 DrawGameOverOverlay:
@@ -651,7 +651,7 @@ DrawGameOverOverlay:
   ldx #12
   jmp DrawString
 
-; DrawPauseMessage — draw the paused text at row 23
+; DrawPauseMessage - draw the paused text at row 23
 DrawPauseMessage:
   lda #<PauseMsg
   sta WORK_PTR

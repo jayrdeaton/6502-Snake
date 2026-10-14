@@ -1,8 +1,8 @@
 ; =============================================================================
-;   sound.asm — eat / death sound feedback
+;   sound.asm - eat / death sound feedback
 ; =============================================================================
 ;   Beep is guaranteed safe (self-no-ops with no SID card) but blocks the
-;   CPU for its full ~300ms tone duration — fine for a one-off like
+;   CPU for its full ~300ms tone duration - fine for a one-off like
 ;   GameOver, but audible every apple pickup as a freeze twice as long as
 ;   a game tick. Sound_Eat instead drives SidPlayNote/SidSilence directly:
 ;   both are plain register writes with no delay loop, so they return to
@@ -12,7 +12,7 @@
 ;   Decay=9, Sustain=$F, Release=8. Calling SidSilence back-to-back with
 ;   SidPlayNote (a handful of CPU cycles apart, i.e. microseconds) gates
 ;   the note off before that ~2ms attack ramp has gotten anywhere near
-;   peak amplitude — what actually plays is a near-silent fade from
+;   peak amplitude - what actually plays is a near-silent fade from
 ;   whatever tiny level it reached, not a crisp hit. That reads as the
 ;   sound being soft/late even though it's logically triggered on the
 ;   right tick. Fix: let the note actually ring for about one game tick
@@ -31,7 +31,7 @@ Sound_Eat:
   sta SOUND_PENDING
   rts
 
-; Sound_ServiceSilence — call once per tick, before triggering any new
+; Sound_ServiceSilence - call once per tick, before triggering any new
 ; sound this tick, so a note from last tick gets roughly a full tick's
 ; worth of real time to ring before being cut off.
 Sound_ServiceSilence:

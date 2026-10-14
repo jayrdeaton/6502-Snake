@@ -1,11 +1,11 @@
 ; =============================================================================
-;   rng.asm — 8-bit Galois LFSR pseudo-random generator
+;   rng.asm - 8-bit Galois LFSR pseudo-random generator
 ; =============================================================================
 
 .segment "CART"
 
 ; -----------------------------------------------------------------------------
-; AdvanceRng — step the LFSR one bit (maximal-length, period 255)
+; AdvanceRng - step the LFSR one bit (maximal-length, period 255)
 ; -----------------------------------------------------------------------------
 AdvanceRng:
   lda RNG_STATE
@@ -17,7 +17,7 @@ AdvanceRng:
   rts
 
 ; -----------------------------------------------------------------------------
-; RollCol — random playfield column
+; RollCol - random playfield column
 ; Out: A in [FIELD_LEFT, FIELD_RIGHT]
 ; -----------------------------------------------------------------------------
 RollCol:
@@ -35,7 +35,7 @@ RollCol:
   rts
 
 ; -----------------------------------------------------------------------------
-; RollRow — random playfield row
+; RollRow - random playfield row
 ; Out: A in [FIELD_TOP, FIELD_BOTTOM]
 ; -----------------------------------------------------------------------------
 RollRow:

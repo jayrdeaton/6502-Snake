@@ -3,7 +3,7 @@ Main file   : Snake.asm
 Current file: Snake.asm
 
 000000r 1               ; =============================================================================
-000000r 1               ;   Snake.asm — cartridge entry point, title screen, and main loop
+000000r 1               ;   Snake.asm - cartridge entry point, title screen, and main loop
 000000r 1               ; =============================================================================
 000000r 1               ;   A classic grid-based Snake game for the AC6502 family, built as a
 000000r 1               ;   standalone ROM cartridge (6502-CRT template). Boots directly, no BASIC.
@@ -18,12 +18,12 @@ Current file: Snake.asm
 000000r 1               
 000000r 1               .include "6502.inc"
 000000r 2               ; =============================================================================
-000000r 2               ;   6502.inc — External include file for the 6502 system
+000000r 2               ;   6502.inc - External include file for the 6502 system
 000000r 2               ; =============================================================================
 000000r 2               ;
 000000r 2               ;   CPU:       WDC 65C02S
 000000r 2               ;   BIOS:      v1.5
-000000r 2               ;   Assembler: ca65 (cc65 toolchain) — uses := for absolute symbols
+000000r 2               ;   Assembler: ca65 (cc65 toolchain) - uses := for absolute symbols
 000000r 2               ;
 000000r 2               ;   Include this file in external projects to access Kernal routines,
 000000r 2               ;   IO hardware registers, system variables, and useful constants.
@@ -43,13 +43,13 @@ Current file: Snake.asm
 000000r 2               ;                 because Wozmon builds its input buffer there)
 000000r 2               ;   $0500-$05FF   BAS_TOKBUF: BASIC's tokenizing scratch
 000000r 2               ;   $0600-$07FF   FS sector buffer (clobbered by any FS/St routine call)
-000000r 2               ;   $0800-$7FFF   Program RAM (30 KB — load address for user code)
+000000r 2               ;   $0800-$7FFF   Program RAM (30 KB - load address for user code)
 000000r 2               ;   $8000-$83FF   IO 1: Banked RAM Low  (256 × ~1 KB banks)
 000000r 2               ;   $8400-$87FF   IO 2: Banked RAM High (256 × ~1 KB banks)
 000000r 2               ;   $8800-$881F   IO 3: RTC (DS1511Y)
 000000r 2               ;   $8C00-$8C07   IO 4: Storage (CompactFlash, 8-bit IDE)
 000000r 2               ;   $9000-$9003   IO 5: Serial (R65C51 ACIA)
-000000r 2               ;   $9400-$940F   IO 6: GPIO (65C22 VIA — keyboard & joysticks)
+000000r 2               ;   $9400-$940F   IO 6: GPIO (65C22 VIA - keyboard & joysticks)
 000000r 2               ;   $9800-$981C   IO 7: Sound (SID / ARMSID)
 000000r 2               ;   $9C00-$9C01   IO 8: Video (TMS9918 / pico9918)
 000000r 2               ;   $A000-$A0FF   Kernal Jump Table (stable entry points)
@@ -64,14 +64,14 @@ Current file: Snake.asm
 000000r 2               ;   -------------
 000000r 2               ;   On RESET the BIOS probes all eight IO slots, initializes detected
 000000r 2               ;   hardware, and auto-selects video or serial console.  If neither is
-000000r 2               ;   found, IO_MODE is left unchanged (no halt — cartridges with their
+000000r 2               ;   found, IO_MODE is left unchanged (no halt - cartridges with their
 000000r 2               ;   own display hardware can still boot).  A startup beep plays (if SID
 000000r 2               ;   is present) for audible feedback, then BOOT_VECTOR ($035B) is
-000000r 2               ;   checked — if non-zero, execution jumps there (cartridge takeover).
+000000r 2               ;   checked - if non-zero, execution jumps there (cartridge takeover).
 000000r 2               ;   Otherwise a console check halts if no video/serial is found, then
 000000r 2               ;   the splash screen and boot menu are displayed.  ENTER launches
 000000r 2               ;   BASIC; ESC enters the Monitor.  A 5-second timeout auto-boots BASIC.
-000000r 2               ;   The splash is drawn on whichever console is active — centred on the
+000000r 2               ;   The splash is drawn on whichever console is active - centred on the
 000000r 2               ;   40-column screen, or left-aligned as plain text over serial.
 000000r 2               ;
 000000r 2               ;   GRACEFUL DEGRADATION
@@ -87,7 +87,7 @@ Current file: Snake.asm
 000000r 2               ;   Cartridges overlay $C000-$FFFF (BASIC, Monitor, Wozmon, vectors).
 000000r 2               ;   The Kernal ($A000-$B7FF) and character set ($B800-$BFFF) remain
 000000r 2               ;   accessible.  Use KernalInit ($A078) to initialize all hardware and
-000000r 2               ;   return via RTS — interrupts are left disabled so the cart can set
+000000r 2               ;   return via RTS - interrupts are left disabled so the cart can set
 000000r 2               ;   up its own handlers first.  See usage patterns in the BIOS README.
 000000r 2               ;
 000000r 2               ;   IO_MODE
@@ -123,10 +123,10 @@ Current file: Snake.asm
 000000r 2               ; use STR_PTR and CF_BUF_PTR/CF_LBA as parameters to Kernal calls.
 000000r 2               ; Locations $3A-$FF are free for user programs.
 000000r 2               
-000000r 2               STR_PTR             := $02               ; 2 bytes — String pointer (used by FsLoadFile, FsSaveFile, FsDeleteFile, etc.)
-000000r 2               CF_BUF_PTR          := $24               ; 2 bytes — CF sector data buffer pointer
-000000r 2               CF_LBA              := $26               ; 4 bytes — CF 28-bit LBA address (little-endian)
-000000r 2               XFER_PTR            := $2A               ; 2 bytes — XModem transfer data pointer (source for XModemSave, dest for XModemLoad)
+000000r 2               STR_PTR             := $02               ; 2 bytes - String pointer (used by FsLoadFile, FsSaveFile, FsDeleteFile, etc.)
+000000r 2               CF_BUF_PTR          := $24               ; 2 bytes - CF sector data buffer pointer
+000000r 2               CF_LBA              := $26               ; 4 bytes - CF 28-bit LBA address (little-endian)
+000000r 2               XFER_PTR            := $2A               ; 2 bytes - XModem transfer data pointer (source for XModemSave, dest for XModemLoad)
 000000r 2               
 000000r 2               ; Safe zero page range for user programs:
 000000r 2               ; $3A-$FF (198 bytes free)
@@ -138,16 +138,16 @@ Current file: Snake.asm
 000000r 2               ;   SECTION 2: SYSTEM VARIABLES ($0300-$03FF)
 000000r 2               ; =============================================================================
 000000r 2               
-000000r 2               IRQ_PTR             := $0300             ; 2 bytes — IRQ handler vector (writable; default: internal Irq handler)
-000000r 2               BRK_PTR             := $0302             ; 2 bytes — BRK handler vector (writable; default: enters Monitor)
-000000r 2               NMI_PTR             := $0304             ; 2 bytes — NMI handler vector (writable; default: RTI)
+000000r 2               IRQ_PTR             := $0300             ; 2 bytes - IRQ handler vector (writable; default: internal Irq handler)
+000000r 2               BRK_PTR             := $0302             ; 2 bytes - BRK handler vector (writable; default: enters Monitor)
+000000r 2               NMI_PTR             := $0304             ; 2 bytes - NMI handler vector (writable; default: RTI)
 000000r 2               
-000000r 2               IO_MODE             := $0306             ; 1 byte  — Console output mode (bit 0: 0=video, 1=serial)
-000000r 2               VID_CURSOR_X        := $0307             ; 1 byte  — Video cursor column (0-39)
-000000r 2               VID_CURSOR_Y        := $0308             ; 1 byte  — Video cursor row (0-23)
+000000r 2               IO_MODE             := $0306             ; 1 byte  - Console output mode (bit 0: 0=video, 1=serial)
+000000r 2               VID_CURSOR_X        := $0307             ; 1 byte  - Video cursor column (0-39)
+000000r 2               VID_CURSOR_Y        := $0308             ; 1 byte  - Video cursor row (0-23)
 000000r 2               
-000000r 2               HW_PRESENT          := $030D             ; 1 byte  — Hardware present bitmask (set during boot probe)
-000000r 2               CF_DISK             := $030F             ; 1 byte  — Current CF disk bank (0–255); base LBA = CF_DISK × FS_DISK_SECTORS; reset to 0 on boot
+000000r 2               HW_PRESENT          := $030D             ; 1 byte  - Hardware present bitmask (set during boot probe)
+000000r 2               CF_DISK             := $030F             ; 1 byte  - Current CF disk bank (0-255); base LBA = CF_DISK × FS_DISK_SECTORS; reset to 0 on boot
 000000r 2               
 000000r 2               ; HW_PRESENT bit definitions (bit order matches IO slot numbers):
 000000r 2               HW_RAM_L            = %00000001          ; Bit 0: RAM card low  (IO 1, $8000-$83FF)
@@ -155,7 +155,7 @@ Current file: Snake.asm
 000000r 2               HW_RTC              = %00000100          ; Bit 2: RTC card      (IO 3, DS1511Y)
 000000r 2               HW_CF               = %00001000          ; Bit 3: Storage card   (IO 4, CompactFlash)
 000000r 2               HW_SC               = %00010000          ; Bit 4: Serial card    (IO 5, R65C51)
-000000r 2               HW_GPIO             = %00100000          ; Bit 5: GPIO card      (IO 6, 65C22 VIA — keyboard/joysticks)
+000000r 2               HW_GPIO             = %00100000          ; Bit 5: GPIO card      (IO 6, 65C22 VIA - keyboard/joysticks)
 000000r 2               HW_SID              = %01000000          ; Bit 6: Sound card     (IO 7, SID/ARMSID)
 000000r 2               HW_VID              = %10000000          ; Bit 7: Video card     (IO 8, TMS9918/pico9918)
 000000r 2               
@@ -168,21 +168,21 @@ Current file: Snake.asm
 000000r 2               BRK_Y               := $0315             ; Saved Y register
 000000r 2               BRK_SP              := $0316             ; Saved stack pointer
 000000r 2               
-000000r 2               XFER_REMAIN         := $0317             ; 2 bytes — XModem byte count (output from XModemLoad; input to XModemSave)
-000000r 2               XFER_IO_SAVE        := $0319             ; 1 byte  — Saved IO_MODE during XModem transfer (internal use)
+000000r 2               XFER_REMAIN         := $0317             ; 2 bytes - XModem byte count (output from XModemLoad; input to XModemSave)
+000000r 2               XFER_IO_SAVE        := $0319             ; 1 byte  - Saved IO_MODE during XModem transfer (internal use)
 000000r 2               
 000000r 2               ; RTC scratch (used by RtcWriteDate to pass century):
 000000r 2               RTC_BUF_CENT        := $030B             ; Century value for RtcReadDate / RtcWriteDate
 000000r 2               
 000000r 2               ; Cartridge / boot redirect vector:
-000000r 2               BOOT_VECTOR         := $035B             ; 2 bytes — Boot redirect address (0=normal boot)
+000000r 2               BOOT_VECTOR         := $035B             ; 2 bytes - Boot redirect address (0=normal boot)
 000000r 2                                                        ;   Set after KernalInit to redirect Reset flow
 000000r 2                                                        ;   KernalInit zeroes this; write after init returns
-000000r 2               FS_IO_ADDR          := $037F             ; 2 bytes — Load/save target address for FsLoadFileAddr / FsSaveFileAddr
-000000r 2               FS_FILE_SIZE        := $034A             ; 2 bytes — File size in bytes (set by caller for FsSaveFileAddr; populated by FsLoadFileAddr)
+000000r 2               FS_IO_ADDR          := $037F             ; 2 bytes - Load/save target address for FsLoadFileAddr / FsSaveFileAddr
+000000r 2               FS_FILE_SIZE        := $034A             ; 2 bytes - File size in bytes (set by caller for FsSaveFileAddr; populated by FsLoadFileAddr)
 000000r 2               
 000000r 2               ; Program image handoff (v1.3):
-000000r 2               PRG_IMAGE_END       := $038E             ; 2 bytes — End address of a program image placed at
+000000r 2               PRG_IMAGE_END       := $038E             ; 2 bytes - End address of a program image placed at
 000000r 2                                                        ;   PROGRAM_START by a loader running outside BASIC
 000000r 2                                                        ;   (e.g. the Monitor's L command); 0 = none.
 000000r 2                                                        ;   KernalInit zeroes it; BASIC consumes and re-zeroes it
@@ -196,7 +196,7 @@ Current file: Snake.asm
 000000r 2               ;   SECTION 3: KEY MEMORY LOCATIONS
 000000r 2               ; =============================================================================
 000000r 2               
-000000r 2               INPUT_BUFFER        := $0200             ; $0200-$02FF — 256-byte ring buffer (keyboard/serial input)
+000000r 2               INPUT_BUFFER        := $0200             ; $0200-$02FF - 256-byte ring buffer (keyboard/serial input)
 000000r 2               PROGRAM_START       := $0800             ; User programs and BASIC programs load here
 000000r 2               ;                                        ; Program space extends to $7FFF (30 KB)
 000000r 2               MEMORY_TOP          := $8000             ; First address past usable RAM (IO space starts here)
@@ -293,7 +293,7 @@ Current file: Snake.asm
 000000r 2                                                        ;   Modifies: A
 000000r 2               
 000000r 2               SidSilence          := $A036             ; Silence all 3 SID voices (gate off only)
-000000r 2                                                        ;   Frequencies are left intact — the envelope release
+000000r 2                                                        ;   Frequencies are left intact - the envelope release
 000000r 2                                                        ;   rings the tone out.  Zeroing freq would freeze the
 000000r 2                                                        ;   waveform and decay a DC offset (audible thump)
 000000r 2                                                        ;   Skips silently if no SID is fitted
@@ -313,7 +313,7 @@ Current file: Snake.asm
 000000r 2               ;   StReadSector / StWriteSector operate on the selected bank automatically.
 000000r 2               ;   Pass null-terminated "NAME.EXT" string via STR_PTR ($02-$03).
 000000r 2               ;   Use FsLoadFileAddr / FsSaveFileAddr for load-to-address transfers.
-000000r 2               ;   The extension is inert — nothing in the BIOS branches on it, so .PRG, .BAS
+000000r 2               ;   The extension is inert - nothing in the BIOS branches on it, so .PRG, .BAS
 000000r 2               ;   and .FOO behave identically.  What a file means is decided by the routine
 000000r 2               ;   that loads it, never by its name.
 000000r 2               ;   All FS routines use $0600-$07FF as a 512-byte sector buffer.
@@ -339,8 +339,8 @@ Current file: Snake.asm
 000000r 2                                                        ;   Modifies: A
 000000r 2               
 000000r 2               ; --- Joysticks ---
-000000r 2               ;   Both ports are ACTIVE LOW — each line is pulled up through 1K and grounded
-000000r 2               ;   by its switch — and both routines return the port read raw.  So a held
+000000r 2               ;   Both ports are ACTIVE LOW - each line is pulled up through 1K and grounded
+000000r 2               ;   by its switch - and both routines return the port read raw.  So a held
 000000r 2               ;   button is a 0 bit and an untouched stick reads $FF:
 000000r 2               ;
 000000r 2               ;     Bit:  7   6   5   4   3   2   1   0
@@ -348,7 +348,7 @@ Current file: Snake.asm
 000000r 2               ;
 000000r 2               ;   Test a direction with:  lda ... / and #%00010000 / beq @UpHeld
 000000r 2               ;
-000000r 2               ;   Neither routine checks HW_PRESENT — with no GPIO card fitted they read a
+000000r 2               ;   Neither routine checks HW_PRESENT - with no GPIO card fitted they read a
 000000r 2               ;   floating bus and the value is meaningless.  Test HW_GPIO first if the card
 000000r 2               ;   may be absent.  (BASIC's JOY() does this and reports $FF.)
 000000r 2               ;
@@ -451,7 +451,7 @@ Current file: Snake.asm
 000000r 2                                                        ;   Out: A = major version, X = minor version
 000000r 2               
 000000r 2               ; --- Disk-banking & addressed storage (v1.1) ---
-000000r 2               ;   CF_DISK ($030F) selects the current disk bank (0–255).
+000000r 2               ;   CF_DISK ($030F) selects the current disk bank (0-255).
 000000r 2               ;   All FS routines, StReadSector, and StWriteSector address the selected
 000000r 2               ;   bank automatically.  Bank changes survive until the next reset.
 000000r 2               
@@ -470,15 +470,15 @@ Current file: Snake.asm
 000000r 2               
 000000r 2               FsFormatDisk        := $A084             ; Zero the current disk's directory (erases all 16 entries)
 000000r 2                                                        ;   Out: C=0 success, C=1 write error
-000000r 2                                                        ;   No confirmation prompt — caller is responsible
+000000r 2                                                        ;   No confirmation prompt - caller is responsible
 000000r 2                                                        ;   Modifies: A, X, Y
 000000r 2               
 000000r 2               FsSetDisk           := $A087             ; Select the current CF disk bank
-000000r 2                                                        ;   In: A = disk number (0–255) → stored in CF_DISK ($030F)
+000000r 2                                                        ;   In: A = disk number (0-255) → stored in CF_DISK ($030F)
 000000r 2                                                        ;   Modifies: Flags
 000000r 2               
 000000r 2               FsGetDisk           := $A08A             ; Get the current CF disk bank
-000000r 2                                                        ;   Out: A = CF_DISK value (0–255)
+000000r 2                                                        ;   Out: A = CF_DISK value (0-255)
 000000r 2                                                        ;   Modifies: Flags, A
 000000r 2               
 000000r 2               FsPrintDisk         := $A08D             ; Print "DISK n" + CRLF via Chrout (decimal, no leading zeros)
@@ -540,8 +540,8 @@ Current file: Snake.asm
 000000r 2               RTC_RAM_ADDR        := $8810             ; NVRAM address register
 000000r 2               RTC_RAM_DATA        := $8813             ; NVRAM data register
 000000r 2               ; Control Register B bits:
-000000r 2               RTC_CTRL_B_TE       := %10000000         ; Transfer Enable — set to inhibit clock updates during write
-000000r 2               ; Month register ($8805) — the upper 3 bits are oscillator/SQW control, not month data.
+000000r 2               RTC_CTRL_B_TE       := %10000000         ; Transfer Enable - set to inhibit clock updates during write
+000000r 2               ; Month register ($8805) - the upper 3 bits are oscillator/SQW control, not month data.
 000000r 2               ; Always mask with RTC_MON_MASK when reading the month, and preserve these bits on write.
 000000r 2               RTC_MON_MASK        := %00011111         ; Month value occupies the low 5 bits
 000000r 2               RTC_MON_EOSC        := %10000000         ; Oscillator Start/Stop (0 = oscillator running)
@@ -551,26 +551,26 @@ Current file: Snake.asm
 000000r 2               ; --- CompactFlash / Storage (IO 4: $8C00-$8C07) ---
 000000r 2               ;   8-bit IDE (True IDE) mode.  The BIOS issues Set Features $01 at boot
 000000r 2               ;   to enable 8-bit data transfers.
-000000r 2               ST_DATA             := $8C00             ; R/W — Data register
-000000r 2               ST_ERROR            := $8C01             ; Read — Error register
-000000r 2               ST_FEATURE          := $8C01             ; Write — Feature register
-000000r 2               ST_SECT_CNT         := $8C02             ; R/W — Sector count
-000000r 2               ST_LBA_0            := $8C03             ; R/W — LBA bits 0-7
-000000r 2               ST_LBA_1            := $8C04             ; R/W — LBA bits 8-15
-000000r 2               ST_LBA_2            := $8C05             ; R/W — LBA bits 16-23
-000000r 2               ST_LBA_3            := $8C06             ; R/W — LBA bits 24-27 + drive/mode
-000000r 2               ST_STATUS           := $8C07             ; Read — Status register
-000000r 2               ST_CMD              := $8C07             ; Write — Command register
+000000r 2               ST_DATA             := $8C00             ; R/W - Data register
+000000r 2               ST_ERROR            := $8C01             ; Read - Error register
+000000r 2               ST_FEATURE          := $8C01             ; Write - Feature register
+000000r 2               ST_SECT_CNT         := $8C02             ; R/W - Sector count
+000000r 2               ST_LBA_0            := $8C03             ; R/W - LBA bits 0-7
+000000r 2               ST_LBA_1            := $8C04             ; R/W - LBA bits 8-15
+000000r 2               ST_LBA_2            := $8C05             ; R/W - LBA bits 16-23
+000000r 2               ST_LBA_3            := $8C06             ; R/W - LBA bits 24-27 + drive/mode
+000000r 2               ST_STATUS           := $8C07             ; Read - Status register
+000000r 2               ST_CMD              := $8C07             ; Write - Command register
 000000r 2               
 000000r 2               ; CF Status Register bits:
 000000r 2               ST_STATUS_ERR       := %00000001         ; Error occurred
 000000r 2               ST_STATUS_IDX       := %00000010         ; Index mark
 000000r 2               ST_STATUS_CORR      := %00000100         ; Corrected data
-000000r 2               ST_STATUS_DRQ       := %00001000         ; Data request — ready for data transfer
+000000r 2               ST_STATUS_DRQ       := %00001000         ; Data request - ready for data transfer
 000000r 2               ST_STATUS_DSC       := %00010000         ; Drive seek complete
 000000r 2               ST_STATUS_DWF       := %00100000         ; Drive write fault
 000000r 2               ST_STATUS_RDY       := %01000000         ; Drive ready
-000000r 2               ST_STATUS_BSY       := %10000000         ; Drive busy — all other bits invalid while set
+000000r 2               ST_STATUS_BSY       := %10000000         ; Drive busy - all other bits invalid while set
 000000r 2               
 000000r 2               ; CF Error Register bits:
 000000r 2               ST_ERR_AMNF         := %00000001         ; Address mark not found
@@ -610,11 +610,11 @@ Current file: Snake.asm
 000000r 2               
 000000r 2               ; --- Serial Card (R65C51 ACIA) (IO 5: $9000-$9003) ---
 000000r 2               ;   Default config after InitSC: 8-N-1, 19200 baud, RX IRQ enabled
-000000r 2               SC_DATA             := $9000             ; R/W — Data register
-000000r 2               SC_RESET            := $9001             ; Write — Programmatic reset (write any value)
-000000r 2               SC_STATUS           := $9001             ; Read — Status register
-000000r 2               SC_CMD              := $9002             ; R/W — Command register
-000000r 2               SC_CTRL             := $9003             ; R/W — Control register
+000000r 2               SC_DATA             := $9000             ; R/W - Data register
+000000r 2               SC_RESET            := $9001             ; Write - Programmatic reset (write any value)
+000000r 2               SC_STATUS           := $9001             ; Read - Status register
+000000r 2               SC_CMD              := $9002             ; R/W - Command register
+000000r 2               SC_CTRL             := $9003             ; R/W - Control register
 000000r 2               
 000000r 2               ; Serial Status Register bits:
 000000r 2               SC_STATUS_IRQ       := %10000000         ; Interrupt occurred
@@ -762,7 +762,7 @@ Current file: Snake.asm
 000000r 2               SID_NOTE_Bb3        = SID_NOTE_AS3
 000000r 2               SID_NOTE_B3         = $102F              ; ~247 Hz
 000000r 2               
-000000r 2               ; Octave 4 (C4=261.63 Hz .. B4=493.88 Hz) — middle octave
+000000r 2               ; Octave 4 (C4=261.63 Hz .. B4=493.88 Hz) - middle octave
 000000r 2               SID_NOTE_C4         = $1125              ; ~262 Hz (Middle C)
 000000r 2               SID_NOTE_CS4        = $122A              ; ~277 Hz
 000000r 2               SID_NOTE_Db4        = SID_NOTE_CS4
@@ -836,7 +836,7 @@ Current file: Snake.asm
 000000r 2               SID_NOTE_A7         = $E6B0              ; ~3520 Hz
 000000r 2               SID_NOTE_AS7        = $F467              ; ~3729 Hz
 000000r 2               SID_NOTE_Bb7        = SID_NOTE_AS7
-000000r 2               ; Note: B7 (~3951 Hz = $102F0) exceeds the 16-bit SID register — not defined
+000000r 2               ; Note: B7 (~3951 Hz = $102F0) exceeds the 16-bit SID register - not defined
 000000r 2               
 000000r 2               ; --- Video Card (TMS9918 / pico9918) (IO 8: $9C00-$9C01) ---
 000000r 2               ;   Text mode: 40 columns × 24 rows.  Name table at VRAM $0000 (960 bytes).
@@ -844,9 +844,9 @@ Current file: Snake.asm
 000000r 2               ;   To write to a VRAM address: write low byte to VC_REG, then (high | $40) to VC_REG.
 000000r 2               ;   To read from a VRAM address: write low byte to VC_REG, then high byte to VC_REG.
 000000r 2               ;   Register writes: write data byte to VC_REG, then (reg# | $80) to VC_REG.
-000000r 2               VC_DATA             := $9C00             ; R/W — VRAM data (auto-increments address)
-000000r 2               VC_REG              := $9C01             ; Write — Address/register port
-000000r 2               VC_STATUS           := $9C01             ; Read — Status register
+000000r 2               VC_DATA             := $9C00             ; R/W - VRAM data (auto-increments address)
+000000r 2               VC_REG              := $9C01             ; Write - Address/register port
+000000r 2               VC_STATUS           := $9C01             ; Read - Status register
 000000r 2               
 000000r 2               ; =============================================================================
 000000r 2               ;   SECTION 6: USEFUL CONSTANTS
@@ -898,7 +898,7 @@ Current file: Snake.asm
 000000r 2               
 000000r 1               .include "src/zeropage.inc"
 000000r 2               ; =============================================================================
-000000r 2               ;   zeropage.inc — Snake zero-page variables, RAM arrays, and game constants
+000000r 2               ;   zeropage.inc - Snake zero-page variables, RAM arrays, and game constants
 000000r 2               ; =============================================================================
 000000r 2               ;   Zero page $3A-$FF is free for a program that has taken the machine over
 000000r 2               ;   (see SECTION 1 of 6502.inc). A cartridge never runs BASIC/Monitor/XModem,
@@ -953,7 +953,7 @@ Current file: Snake.asm
 000000r 2               DIGIT_COUNT     := $5F   ; scratch: digit accumulator during conversion
 000000r 2               START_PRESSED   := $60   ; set by PollInput when fire/space is down this poll
 000000r 2               PREV_FIRE       := $61   ; START_PRESSED as of the previous poll (edge detection)
-000000r 2               FIRE_EDGE       := $62   ; set only on the poll fire/space first goes down —
+000000r 2               FIRE_EDGE       := $62   ; set only on the poll fire/space first goes down -
 000000r 2                                         ; use this (not START_PRESSED) for state transitions,
 000000r 2                                         ; so holding the button doesn't repeatedly re-trigger
 000000r 2                                         ; pause/resume/restart every tick it stays held
@@ -981,16 +981,16 @@ Current file: Snake.asm
 000000r 2               KB_FIRE_P2      := $6F   ; unused: DrainKeyboardSplit's P2 fire-key output
 000000r 2               
 000000r 2               ; --- RAM arrays (outside zero page; a cartridge never uses BASIC/PRG/CF RAM) ---
-000000r 2               SEGMENTS_X      := $0800   ; 256 bytes — ring buffer of segment columns
-000000r 2               SEGMENTS_Y      := $0900   ; 256 bytes — ring buffer of segment rows
-000000r 2               OCCUPANCY       := $0A00   ; 768 bytes — 32x24 grid, row*32+col: 0=empty 1=snake 3=wall
+000000r 2               SEGMENTS_X      := $0800   ; 256 bytes - ring buffer of segment columns
+000000r 2               SEGMENTS_Y      := $0900   ; 256 bytes - ring buffer of segment rows
+000000r 2               OCCUPANCY       := $0A00   ; 768 bytes - 32x24 grid, row*32+col: 0=empty 1=snake 3=wall
 000000r 2               
 000000r 1               
 000000r 1               .segment "CART"
 000000r 1               
 000000r 1               .include "src/tiles.asm"
 000000r 2               ; =============================================================================
-000000r 2               ;   tiles.asm — Graphics I playfield constants and custom 8x8 tile patterns
+000000r 2               ;   tiles.asm - Graphics I playfield constants and custom 8x8 tile patterns
 000000r 2               ; =============================================================================
 000000r 2               
 000000r 2               GRID_COLS       = 32
@@ -1002,15 +1002,15 @@ Current file: Snake.asm
 000000r 2               FIELD_TOP       = 2
 000000r 2               FIELD_BOTTOM    = 21
 000000r 2               
-000000r 2               ; Tile codes — each in its own color group (group = code>>3) so it gets an
+000000r 2               ; Tile codes - each in its own color group (group = code>>3) so it gets an
 000000r 2               ; independent fg/bg pair without disturbing the CP437 text glyphs used by
 000000r 2               ; the HUD and messages (groups 4-11 for space/digits/uppercase letters).
-000000r 2               TILE_BLANK      = $20    ; reused CP437 space glyph — untouched
+000000r 2               TILE_BLANK      = $20    ; reused CP437 space glyph - untouched
 000000r 2               TILE_HEAD       = $80    ; color group 16
 000000r 2               TILE_BODY       = $88    ; color group 17
 000000r 2               TILE_FOOD       = $90    ; color group 18
 000000r 2               TILE_WALL       = $98    ; color group 19
-000000r 2               TILE_FRAME      = $A0    ; color group 20 — game-over overlay box border
+000000r 2               TILE_FRAME      = $A0    ; color group 20 - game-over overlay box border
 000000r 2               
 000000r 2               COLOR_HEAD      = (TMS_LT_GREEN  << 4) | TMS_BLACK
 000000r 2               COLOR_BODY      = (TMS_MED_GREEN << 4) | TMS_BLACK
@@ -1089,7 +1089,7 @@ Current file: Snake.asm
 000028r 2               
 000028r 1               .include "src/vdp.asm"
 000028r 2               ; =============================================================================
-000028r 2               ;   vdp.asm — TMS9918 Graphics I mode setup and drawing primitives
+000028r 2               ;   vdp.asm - TMS9918 Graphics I mode setup and drawing primitives
 000028r 2               ; =============================================================================
 000028r 2               ;   Port protocol (from 6502.inc, verified against the live BIOS source):
 000028r 2               ;     Set VRAM write address: addr_lo -> VC_REG, then (addr_hi | $40) -> VC_REG
@@ -1099,14 +1099,14 @@ Current file: Snake.asm
 000028r 2               .segment "CART"
 000028r 2               
 000028r 2               ; -----------------------------------------------------------------------------
-000028r 2               ; VdpWriteReg — write one VDP mode register
+000028r 2               ; VdpWriteReg - write one VDP mode register
 000028r 2               ; In: A = value, X = register number (0-7)
 000028r 2               ;
 000028r 2               ; The two writes below must land back-to-back with nothing else touching
 000028r 2               ; VC_REG/VC_STATUS in between, or the chip's write-stage latch (which byte
 000028r 2               ; is expected next) gets out of sync with ours. The VDP itself is an IRQ
 000028r 2               ; source, and reading its status port (the same address as VC_REG) resets
-000028r 2               ; that latch — so an interrupt landing between these two writes desyncs
+000028r 2               ; that latch - so an interrupt landing between these two writes desyncs
 000028r 2               ; every VDP write that follows, not just this one. PHP/SEI/PLP (not raw
 000028r 2               ; SEI/CLI) so this composes correctly when called from an already-atomic
 000028r 2               ; caller like DrawTile below.
@@ -1122,9 +1122,9 @@ Current file: Snake.asm
 000034r 2  60             rts
 000035r 2               
 000035r 2               ; -----------------------------------------------------------------------------
-000035r 2               ; VdpSetAddr — set the VRAM read/write pointer
+000035r 2               ; VdpSetAddr - set the VRAM read/write pointer
 000035r 2               ; In: A = address low byte, X = address high byte
-000035r 2               ; See the interrupt-safety note on VdpWriteReg above — same latch, same risk.
+000035r 2               ; See the interrupt-safety note on VdpWriteReg above - same latch, same risk.
 000035r 2               ; -----------------------------------------------------------------------------
 000035r 2               VdpSetAddr:
 000035r 2  08             php
@@ -1137,7 +1137,7 @@ Current file: Snake.asm
 000041r 2  60             rts
 000042r 2               
 000042r 2               ; -----------------------------------------------------------------------------
-000042r 2               ; ComputeOffset — compute row*32+col into OFFSET_LO/OFFSET_HI
+000042r 2               ; ComputeOffset - compute row*32+col into OFFSET_LO/OFFSET_HI
 000042r 2               ; In: A = row (0-23), X = col (0-31)
 000042r 2               ; Clobbers: A, Y
 000042r 2               ; -----------------------------------------------------------------------------
@@ -1160,21 +1160,21 @@ Current file: Snake.asm
 000059r 2  60             rts
 00005Ar 2               
 00005Ar 2               ; -----------------------------------------------------------------------------
-00005Ar 2               ; VdpSetOffsetAddr — point the VRAM write pointer at name-table offset
+00005Ar 2               ; VdpSetOffsetAddr - point the VRAM write pointer at name-table offset
 00005Ar 2               ; OFFSET_LO/OFFSET_HI (name table base is $0000, so address == offset)
 00005Ar 2               ; -----------------------------------------------------------------------------
 00005Ar 2               VdpSetOffsetAddr:
 00005Ar 2  A5 4A          lda OFFSET_LO
 00005Cr 2  A6 4B          ldx OFFSET_HI
-00005Er 2  4C rr rr       jmp VdpSetAddr        ; tail call — VdpSetAddr's rts returns to our caller
+00005Er 2  4C rr rr       jmp VdpSetAddr        ; tail call - VdpSetAddr's rts returns to our caller
 000061r 2               
 000061r 2               ; -----------------------------------------------------------------------------
-000061r 2               ; DrawTile — draw a tile code into the name table at (row,col)
+000061r 2               ; DrawTile - draw a tile code into the name table at (row,col)
 000061r 2               ; In: A = row, X = col, Y = tile code
 000061r 2               ;
 000061r 2               ; Also atomic end-to-end (not just the address-set half): an interrupt
 000061r 2               ; landing between the address-set and the data write is only harmless if
-000061r 2               ; nothing else touches the VDP in between, which we can't assume — same
+000061r 2               ; nothing else touches the VDP in between, which we can't assume - same
 000061r 2               ; reasoning as VdpWriteReg above.
 000061r 2               ; -----------------------------------------------------------------------------
 000061r 2               DrawTile:
@@ -1190,7 +1190,7 @@ Current file: Snake.asm
 000070r 2  60             rts
 000071r 2               
 000071r 2               ; -----------------------------------------------------------------------------
-000071r 2               ; EraseTile — draw TILE_BLANK at (row,col)
+000071r 2               ; EraseTile - draw TILE_BLANK at (row,col)
 000071r 2               ; In: A = row, X = col
 000071r 2               ; -----------------------------------------------------------------------------
 000071r 2               EraseTile:
@@ -1198,7 +1198,7 @@ Current file: Snake.asm
 000073r 2  4C rr rr       jmp DrawTile
 000076r 2               
 000076r 2               ; -----------------------------------------------------------------------------
-000076r 2               ; OccupancyPtr — point WORK_PTR at OCCUPANCY[row*32+col]
+000076r 2               ; OccupancyPtr - point WORK_PTR at OCCUPANCY[row*32+col]
 000076r 2               ; In: A = row, X = col  (OCCUPANCY is page-aligned, so only the high byte
 000076r 2               ; needs the addition)
 000076r 2               ; -----------------------------------------------------------------------------
@@ -1213,7 +1213,7 @@ Current file: Snake.asm
 000084r 2  60             rts
 000085r 2               
 000085r 2               ; -----------------------------------------------------------------------------
-000085r 2               ; OccupancySet — write a value into OCCUPANCY[row,col]
+000085r 2               ; OccupancySet - write a value into OCCUPANCY[row,col]
 000085r 2               ; In: A = row, X = col, Y = value
 000085r 2               ; -----------------------------------------------------------------------------
 000085r 2               OccupancySet:
@@ -1226,7 +1226,7 @@ Current file: Snake.asm
 00008Fr 2  60             rts
 000090r 2               
 000090r 2               ; -----------------------------------------------------------------------------
-000090r 2               ; OccupancyGet — read OCCUPANCY[row,col]
+000090r 2               ; OccupancyGet - read OCCUPANCY[row,col]
 000090r 2               ; In: A = row, X = col
 000090r 2               ; Out: A = value
 000090r 2               ; -----------------------------------------------------------------------------
@@ -1237,7 +1237,7 @@ Current file: Snake.asm
 000097r 2  60             rts
 000098r 2               
 000098r 2               ; -----------------------------------------------------------------------------
-000098r 2               ; InitOccupancy — clear the whole 768-byte occupancy grid to 0
+000098r 2               ; InitOccupancy - clear the whole 768-byte occupancy grid to 0
 000098r 2               ; -----------------------------------------------------------------------------
 000098r 2               InitOccupancy:
 000098r 2  A9 00          lda #<OCCUPANCY
@@ -1258,7 +1258,7 @@ Current file: Snake.asm
 0000B0r 2  60             rts
 0000B1r 2               
 0000B1r 2               ; -----------------------------------------------------------------------------
-0000B1r 2               ; DrawBorder — draw the wall tile around the playfield, both visually and
+0000B1r 2               ; DrawBorder - draw the wall tile around the playfield, both visually and
 0000B1r 2               ; in the OCCUPANCY grid (top/bottom rows across all columns, then the two
 0000B1r 2               ; side columns for the interior rows).
 0000B1r 2               ; -----------------------------------------------------------------------------
@@ -1316,7 +1316,7 @@ Current file: Snake.asm
 00010Fr 2  60             rts
 000110r 2               
 000110r 2               ; -----------------------------------------------------------------------------
-000110r 2               ; DrawBoxFrame — draw a TILE_FRAME outline around the game-over overlay box
+000110r 2               ; DrawBoxFrame - draw a TILE_FRAME outline around the game-over overlay box
 000110r 2               ; -----------------------------------------------------------------------------
 000110r 2               DrawBoxFrame:
 000110r 2  64 4D          stz SCAN_TMP
@@ -1365,7 +1365,7 @@ Current file: Snake.asm
 000156r 2  60             rts
 000157r 2               
 000157r 2               ; -----------------------------------------------------------------------------
-000157r 2               ; ClearBoxInterior — blank the overlay box's interior (excludes its 1-tile
+000157r 2               ; ClearBoxInterior - blank the overlay box's interior (excludes its 1-tile
 000157r 2               ; frame border), erasing whatever snake/food was on the board underneath.
 000157r 2               ; -----------------------------------------------------------------------------
 000157r 2               ClearBoxInterior:
@@ -1396,7 +1396,7 @@ Current file: Snake.asm
 00017Fr 2  60             rts
 000180r 2               
 000180r 2               ; -----------------------------------------------------------------------------
-000180r 2               ; WriteTilePatterns — copy the four custom 8x8 patterns into VRAM
+000180r 2               ; WriteTilePatterns - copy the four custom 8x8 patterns into VRAM
 000180r 2               ; -----------------------------------------------------------------------------
 000180r 2               WriteTilePatterns:
 000180r 2  08             php
@@ -1459,7 +1459,7 @@ Current file: Snake.asm
 0001E7r 2  60             rts
 0001E8r 2               
 0001E8r 2               ; -----------------------------------------------------------------------------
-0001E8r 2               ; InitGraphicsI — switch the VDP into Graphics I mode and build the screen
+0001E8r 2               ; InitGraphicsI - switch the VDP into Graphics I mode and build the screen
 0001E8r 2               ; -----------------------------------------------------------------------------
 0001E8r 2               InitGraphicsI:
 0001E8r 2  AD 0D 03       lda HW_PRESENT
@@ -1473,7 +1473,7 @@ Current file: Snake.asm
 0001F6r 2  80 FE          bra @haltLoop
 0001F8r 2               
 0001F8r 2               @haveVideo:
-0001F8r 2  08             php                      ; outer critical section for the whole setup —
+0001F8r 2  08             php                      ; outer critical section for the whole setup -
 0001F9r 2  78             sei                      ; covers the inline register/color-table writes
 0001FAr 2                                           ; below that aren't wrapped by a called routine
 0001FAr 2  A9 80          lda #$80
@@ -1562,7 +1562,7 @@ Current file: Snake.asm
 00029Fr 2  60             rts
 0002A0r 2               
 0002A0r 2               ; -----------------------------------------------------------------------------
-0002A0r 2               ; ClearScreen — fill all 768 name-table cells with TILE_BLANK. Called once
+0002A0r 2               ; ClearScreen - fill all 768 name-table cells with TILE_BLANK. Called once
 0002A0r 2               ; from InitGraphicsI, and again from NewGame on every restart so a fresh
 0002A0r 2               ; game never shows the previous game's leftover snake/food tiles.
 0002A0r 2               ; -----------------------------------------------------------------------------
@@ -1591,13 +1591,13 @@ Current file: Snake.asm
 0002D5r 2               
 0002D5r 1               .include "src/rng.asm"
 0002D5r 2               ; =============================================================================
-0002D5r 2               ;   rng.asm — 8-bit Galois LFSR pseudo-random generator
+0002D5r 2               ;   rng.asm - 8-bit Galois LFSR pseudo-random generator
 0002D5r 2               ; =============================================================================
 0002D5r 2               
 0002D5r 2               .segment "CART"
 0002D5r 2               
 0002D5r 2               ; -----------------------------------------------------------------------------
-0002D5r 2               ; AdvanceRng — step the LFSR one bit (maximal-length, period 255)
+0002D5r 2               ; AdvanceRng - step the LFSR one bit (maximal-length, period 255)
 0002D5r 2               ; -----------------------------------------------------------------------------
 0002D5r 2               AdvanceRng:
 0002D5r 2  A5 46          lda RNG_STATE
@@ -1609,7 +1609,7 @@ Current file: Snake.asm
 0002DEr 2  60             rts
 0002DFr 2               
 0002DFr 2               ; -----------------------------------------------------------------------------
-0002DFr 2               ; RollCol — random playfield column
+0002DFr 2               ; RollCol - random playfield column
 0002DFr 2               ; Out: A in [FIELD_LEFT, FIELD_RIGHT]
 0002DFr 2               ; -----------------------------------------------------------------------------
 0002DFr 2               RollCol:
@@ -1627,7 +1627,7 @@ Current file: Snake.asm
 0002F1r 2  60             rts
 0002F2r 2               
 0002F2r 2               ; -----------------------------------------------------------------------------
-0002F2r 2               ; RollRow — random playfield row
+0002F2r 2               ; RollRow - random playfield row
 0002F2r 2               ; Out: A in [FIELD_TOP, FIELD_BOTTOM]
 0002F2r 2               ; -----------------------------------------------------------------------------
 0002F2r 2               RollRow:
@@ -1646,7 +1646,7 @@ Current file: Snake.asm
 000305r 2               
 000305r 1               .include "src/input.asm"
 000305r 2               ; =============================================================================
-000305r 2               ;   input.asm — joystick-first polling, keyboard fallback (WASD/arrows)
+000305r 2               ;   input.asm - joystick-first polling, keyboard fallback (WASD/arrows)
 000305r 2               ; =============================================================================
 000305r 2               ;   Movement and the A button come from the joystick when one is present and
 000305r 2               ;   being used; WASD or arrow keys act as a fallback for a single player
@@ -1654,7 +1654,7 @@ Current file: Snake.asm
 000305r 2               ;   card is fitted at all). Joystick and keyboard are never blended within
 000305r 2               ;   the same poll: if the joystick shows any direction, that direction wins
 000305r 2               ;   outright and the keyboard isn't even consulted for direction. The fire
-000305r 2               ;   button is the one exception — joystick A held OR keyboard space seen
+000305r 2               ;   button is the one exception - joystick A held OR keyboard space seen
 000305r 2               ;   this drain, either sets START_PRESSED, independent of which source won
 000305r 2               ;   the direction for this poll.
 000305r 2               ;
@@ -1672,18 +1672,18 @@ Current file: Snake.asm
 000305r 2               
 000305r 2               .include "../../6502-Lib/core/input.asm"
 000305r 3               ; =============================================================================
-000305r 3               ;   input.asm — shared joystick-first, keyboard-fallback input primitives
+000305r 3               ;   input.asm - shared joystick-first, keyboard-fallback input primitives
 000305r 3               ; =============================================================================
 000305r 3               ; Caller contract:
 000305r 3               ; - Consuming project defines HW_PRESENT, HW_GPIO, ReadJoystick1,
 000305r 3               ;   ReadJoystick2, Chrin (all Kernal-provided) before including this file.
 000305r 3               ; - Consuming project defines its own DIR_UP/DIR_DOWN constants (and
 000305r 3               ;   DIR_LEFT/DIR_RIGHT, only if it's a 4-directional game) at whatever
-000305r 3               ;   numeric values it already uses — this file references them by name
+000305r 3               ;   numeric values it already uses - this file references them by name
 000305r 3               ;   only, so Snake/LightCycles' 0/1/2/3 and Pong's 1/2 both work unchanged.
 000305r 3               ; - Consuming project defines the zero-page output bytes each routine
 000305r 3               ;   below documents (JOY_STATE, JOY_STATE2, KB_DIR, KB_DIR_P1, KB_DIR_P2,
-000305r 3               ;   KB_FIRE, and — only if calling DrainKeyboardSplit — KB_FIRE_P1,
+000305r 3               ;   KB_FIRE, and - only if calling DrainKeyboardSplit - KB_FIRE_P1,
 000305r 3               ;   KB_FIRE_P2) before including this file, at whatever address is free.
 000305r 3               ;
 000305r 3               ; Exported routines:
@@ -1692,7 +1692,7 @@ Current file: Snake.asm
 000305r 3               ; - DrainKeyboardCombined  single-player keyboard fallback (WASD or arrows)
 000305r 3               ; - DrainKeyboardSplit     two-player keyboard fallback (WASD=P1, arrows=P2)
 000305r 3               ;
-000305r 3               ; This file intentionally does NOT resolve a final NEXT_DIR/START_PRESSED —
+000305r 3               ; This file intentionally does NOT resolve a final NEXT_DIR/START_PRESSED -
 000305r 3               ; that composition (joystick-first priority, A-button-or-space, edge
 000305r 3               ; detection) is project-specific glue that stays in each game's own
 000305r 3               ; input.asm, since the exact target variables differ per game (NEXT_DIR vs
@@ -1738,7 +1738,7 @@ Current file: Snake.asm
 000305r 3               .segment "CART"
 000305r 3               
 000305r 3               ; -----------------------------------------------------------------------------
-000305r 3               ; PollJoyCombined — read both joystick ports and AND-combine them
+000305r 3               ; PollJoyCombined - read both joystick ports and AND-combine them
 000305r 3               ; (active-low AND = logical OR of "pressed"), so either port drives a
 000305r 3               ; single-player game regardless of which one it's plugged into.
 000305r 3               ; Out: JOY_STATE = combined active-low byte, or $FF (idle) if no GPIO card.
@@ -1760,8 +1760,8 @@ Current file: Snake.asm
 00031Dr 3  60             rts
 00031Er 3               
 00031Er 3               ; -----------------------------------------------------------------------------
-00031Er 3               ; PollJoy1 / PollJoy2 — read a single joystick port, gated on HW_GPIO
-00031Er 3               ; (ReadJoystick1/2 do not check hardware presence themselves — a floating
+00031Er 3               ; PollJoy1 / PollJoy2 - read a single joystick port, gated on HW_GPIO
+00031Er 3               ; (ReadJoystick1/2 do not check hardware presence themselves - a floating
 00031Er 3               ; bus reads as meaningless data with no GPIO card fitted).
 00031Er 3               ; Out: JOY_STATE / JOY_STATE2, or $FF (idle) if no GPIO card.
 00031Er 3               ; Clobbers: A
@@ -1791,7 +1791,7 @@ Current file: Snake.asm
 000341r 3  60             rts
 000342r 3               
 000342r 3               ; -----------------------------------------------------------------------------
-000342r 3               ; DrainKeyboardCombined — single-player keyboard fallback: WASD or arrow
+000342r 3               ; DrainKeyboardCombined - single-player keyboard fallback: WASD or arrow
 000342r 3               ; keys both work, whichever was pressed most recently in this call wins.
 000342r 3               ; Drains every pending Chrin character each call (not just one), so a
 000342r 3               ; burst typed between polls doesn't leave stale characters for next time.
@@ -1868,7 +1868,7 @@ Current file: Snake.asm
 000398r 3  60             rts
 000399r 3               
 000399r 3               ; -----------------------------------------------------------------------------
-000399r 3               ; DrainKeyboardSplit — two-player keyboard fallback: WASD drives P1 only,
+000399r 3               ; DrainKeyboardSplit - two-player keyboard fallback: WASD drives P1 only,
 000399r 3               ; arrow keys drive P2 only, so one player's keypresses can never move the
 000399r 3               ; other's paddle/cycle. Drains every pending Chrin character ONCE per
 000399r 3               ; call, checking both keysets in the same pass (so both players' presses
@@ -1877,7 +1877,7 @@ Current file: Snake.asm
 000399r 3               ; that never defines DIR_LEFT/DIR_RIGHT (e.g. Pong).
 000399r 3               ; Out: KB_DIR_P1 = last WASD direction seen this call, or KB_DIR_NONE.
 000399r 3               ;      KB_DIR_P2 = last arrow-key direction seen this call, or KB_DIR_NONE.
-000399r 3               ;      KB_FIRE = 1 if EITHER fire key was seen this call, else 0 — kept
+000399r 3               ;      KB_FIRE = 1 if EITHER fire key was seen this call, else 0 - kept
 000399r 3               ;      for callers with only one shared fire/start/pause action (every
 000399r 3               ;      game as of this writing: "did anyone press it" is all that
 000399r 3               ;      matters, mirroring how either joystick's A button already
@@ -1986,7 +1986,7 @@ Current file: Snake.asm
 00041Dr 2               .segment "CART"
 00041Dr 2               
 00041Dr 2               ; -----------------------------------------------------------------------------
-00041Dr 2               ; PollInput — sample joystick 1 and 2 (combined) for movement and the A
+00041Dr 2               ; PollInput - sample joystick 1 and 2 (combined) for movement and the A
 00041Dr 2               ; button; fall back to the keyboard (WASD/arrows/space) only when the
 00041Dr 2               ; joystick shows no direction this poll. Safe to call every frame regardless
 00041Dr 2               ; of GAME_STATE.
@@ -2029,7 +2029,7 @@ Current file: Snake.asm
 000454r 2               @jNotA:
 000454r 2               
 000454r 2                 ; Keyboard fallback: only consulted when the joystick showed NO direction
-000454r 2                 ; this poll (all four direction bits high in JOY_STATE) — joystick always
+000454r 2                 ; this poll (all four direction bits high in JOY_STATE) - joystick always
 000454r 2                 ; wins outright when it shows anything, per the priority rule above.
 000454r 2  A5 54          lda JOY_STATE
 000456r 2  29 F0          and #(JOY_UP | JOY_DOWN | JOY_LEFT | JOY_RIGHT)
@@ -2066,10 +2066,10 @@ Current file: Snake.asm
 000480r 2               
 000480r 1               .include "src/sound.asm"
 000480r 2               ; =============================================================================
-000480r 2               ;   sound.asm — eat / death sound feedback
+000480r 2               ;   sound.asm - eat / death sound feedback
 000480r 2               ; =============================================================================
 000480r 2               ;   Beep is guaranteed safe (self-no-ops with no SID card) but blocks the
-000480r 2               ;   CPU for its full ~300ms tone duration — fine for a one-off like
+000480r 2               ;   CPU for its full ~300ms tone duration - fine for a one-off like
 000480r 2               ;   GameOver, but audible every apple pickup as a freeze twice as long as
 000480r 2               ;   a game tick. Sound_Eat instead drives SidPlayNote/SidSilence directly:
 000480r 2               ;   both are plain register writes with no delay loop, so they return to
@@ -2079,7 +2079,7 @@ Current file: Snake.asm
 000480r 2               ;   Decay=9, Sustain=$F, Release=8. Calling SidSilence back-to-back with
 000480r 2               ;   SidPlayNote (a handful of CPU cycles apart, i.e. microseconds) gates
 000480r 2               ;   the note off before that ~2ms attack ramp has gotten anywhere near
-000480r 2               ;   peak amplitude — what actually plays is a near-silent fade from
+000480r 2               ;   peak amplitude - what actually plays is a near-silent fade from
 000480r 2               ;   whatever tiny level it reached, not a crisp hit. That reads as the
 000480r 2               ;   sound being soft/late even though it's logically triggered on the
 000480r 2               ;   right tick. Fix: let the note actually ring for about one game tick
@@ -2098,7 +2098,7 @@ Current file: Snake.asm
 00048Br 2  85 68          sta SOUND_PENDING
 00048Dr 2  60             rts
 00048Er 2               
-00048Er 2               ; Sound_ServiceSilence — call once per tick, before triggering any new
+00048Er 2               ; Sound_ServiceSilence - call once per tick, before triggering any new
 00048Er 2               ; sound this tick, so a note from last tick gets roughly a full tick's
 00048Er 2               ; worth of real time to ring before being cut off.
 00048Er 2               Sound_ServiceSilence:
@@ -2116,13 +2116,13 @@ Current file: Snake.asm
 00049Fr 2               
 00049Fr 1               .include "src/game.asm"
 00049Fr 2               ; =============================================================================
-00049Fr 2               ;   game.asm — Snake state machine: title wait, tick logic, HUD, game over
+00049Fr 2               ;   game.asm - Snake state machine: title wait, tick logic, HUD, game over
 00049Fr 2               ; =============================================================================
 00049Fr 2               
 00049Fr 2               .segment "CART"
 00049Fr 2               
 00049Fr 2               ; -----------------------------------------------------------------------------
-00049Fr 2               ; DrawTitleScreen — draw the title screen in Graphics I, using the same
+00049Fr 2               ; DrawTitleScreen - draw the title screen in Graphics I, using the same
 00049Fr 2               ; tiles/palette as gameplay (called once at boot, before WaitForStart, on
 00049Fr 2               ; top of the border InitGraphicsI already drew). Every line's column is
 00049Fr 2               ; computed for exact centering in the 32-wide grid.
@@ -2139,7 +2139,7 @@ Current file: Snake.asm
 0004AEr 2                 ; snake + apple decoration, row 10: the same tiles used in gameplay, so
 0004AEr 2                 ; the title screen reads as the same game, not a splash screen bolted
 0004AEr 2                 ; on top of it. "S N A K E" above (cols 11-19) is the point of
-0004AEr 2                 ; reference — the body underlines the whole word and runs a couple
+0004AEr 2                 ; reference - the body underlines the whole word and runs a couple
 0004AEr 2                 ; cells past it on both ends, with the head chasing a nearby apple.
 0004AEr 2  A9 09          lda #9
 0004B0r 2  85 4D          sta SCAN_TMP
@@ -2186,7 +2186,7 @@ Current file: Snake.asm
 0004FEr 2  4C rr rr       jmp DrawString
 000501r 2               
 000501r 2               ; -----------------------------------------------------------------------------
-000501r 2               ; WaitForStart — title-screen loop. Polls for the A button, seeds RNG_STATE
+000501r 2               ; WaitForStart - title-screen loop. Polls for the A button, seeds RNG_STATE
 000501r 2               ; from elapsed loop iterations (reaction-time entropy) plus the RTC clock
 000501r 2               ; if fitted.
 000501r 2               ; -----------------------------------------------------------------------------
@@ -2220,7 +2220,7 @@ Current file: Snake.asm
 00052Fr 2  60             rts
 000530r 2               
 000530r 2               ; -----------------------------------------------------------------------------
-000530r 2               ; NewGame — reset the playfield and snake for a fresh game (also used to
+000530r 2               ; NewGame - reset the playfield and snake for a fresh game (also used to
 000530r 2               ; restart from GAMEOVER; safe to call repeatedly since it fully redraws the
 000530r 2               ; occupancy grid and border rather than tracking incremental cleanup).
 000530r 2               ; -----------------------------------------------------------------------------
@@ -2295,7 +2295,7 @@ Current file: Snake.asm
 0005BAr 2  60             rts
 0005BBr 2               
 0005BBr 2               ; -----------------------------------------------------------------------------
-0005BBr 2               ; Tick — advance the snake one grid step
+0005BBr 2               ; Tick - advance the snake one grid step
 0005BBr 2               ; -----------------------------------------------------------------------------
 0005BBr 2               Tick:
 0005BBr 2  20 rr rr       jsr Sound_ServiceSilence
@@ -2463,11 +2463,11 @@ Current file: Snake.asm
 0006CBr 2  60             rts
 0006CCr 2               
 0006CCr 2               ; -----------------------------------------------------------------------------
-0006CCr 2               ; High score persistence — the cartridge ROM itself is read-only and can't
+0006CCr 2               ; High score persistence - the cartridge ROM itself is read-only and can't
 0006CCr 2               ; store anything, but the RTC card (when fitted) carries 256 bytes of
 0006CCr 2               ; battery-backed NVRAM that survives power cycles. We use 3 of those bytes:
 0006CCr 2               ; a signature (to tell "our data" from an untouched/foreign NVRAM) plus the
-0006CCr 2               ; 16-bit score. With no RTC card, the high score is still tracked — it just
+0006CCr 2               ; 16-bit score. With no RTC card, the high score is still tracked - it just
 0006CCr 2               ; lives in RAM only and resets whenever the machine is powered off.
 0006CCr 2               ; -----------------------------------------------------------------------------
 0006CCr 2               NVRAM_SIG_ADDR      = 0
@@ -2475,7 +2475,7 @@ Current file: Snake.asm
 0006CCr 2               NVRAM_SCORE_HI_ADDR = 2
 0006CCr 2               NVRAM_MAGIC         = $A5
 0006CCr 2               
-0006CCr 2               ; LoadHighScore — call once at boot, before the title screen is drawn
+0006CCr 2               ; LoadHighScore - call once at boot, before the title screen is drawn
 0006CCr 2               LoadHighScore:
 0006CCr 2  64 65          stz HIGH_SCORE_LO
 0006CEr 2  64 66          stz HIGH_SCORE_HI
@@ -2495,7 +2495,7 @@ Current file: Snake.asm
 0006EEr 2               @done:
 0006EEr 2  60             rts
 0006EFr 2               
-0006EFr 2               ; SaveHighScore — call whenever HIGH_SCORE_LO/HI changes
+0006EFr 2               ; SaveHighScore - call whenever HIGH_SCORE_LO/HI changes
 0006EFr 2               SaveHighScore:
 0006EFr 2  AD 0D 03       lda HW_PRESENT
 0006F2r 2  29 04          and #HW_RTC
@@ -2513,7 +2513,7 @@ Current file: Snake.asm
 00070Br 2  60             rts
 00070Cr 2               
 00070Cr 2               ; -----------------------------------------------------------------------------
-00070Cr 2               ; RespawnFood — place food on a random empty cell (bounded retry)
+00070Cr 2               ; RespawnFood - place food on a random empty cell (bounded retry)
 00070Cr 2               ; -----------------------------------------------------------------------------
 00070Cr 2               RespawnFood:
 00070Cr 2  64 4C          stz RETRY_CNT
@@ -2550,7 +2550,7 @@ Current file: Snake.asm
 00073Dr 2               ; Decimal HUD helpers
 00073Dr 2               ; -----------------------------------------------------------------------------
 00073Dr 2               
-00073Dr 2               ; Sub16IfGE — if SC_TMP >= SUB, subtract and return carry set; else carry clear
+00073Dr 2               ; Sub16IfGE - if SC_TMP >= SUB, subtract and return carry set; else carry clear
 00073Dr 2               Sub16IfGE:
 00073Dr 2  A5 5C          lda SC_TMP_HI
 00073Fr 2  C5 5E          cmp SUB_HI
@@ -2573,7 +2573,7 @@ Current file: Snake.asm
 00075Ar 2  18             clc
 00075Br 2  60             rts
 00075Cr 2               
-00075Cr 2               ; CountDigit — count how many times SUB can be subtracted from SC_TMP
+00075Cr 2               ; CountDigit - count how many times SUB can be subtracted from SC_TMP
 00075Cr 2               ; Out: A = ASCII digit ('0'-'9')
 00075Cr 2               CountDigit:
 00075Cr 2  A9 00          lda #0
@@ -2589,7 +2589,7 @@ Current file: Snake.asm
 00076Dr 2  69 30          adc #'0'
 00076Fr 2  60             rts
 000770r 2               
-000770r 2               ; ValueToDigits — convert a 16-bit value into 5 ASCII digits in DIGIT_BUF
+000770r 2               ; ValueToDigits - convert a 16-bit value into 5 ASCII digits in DIGIT_BUF
 000770r 2               ; In: A = value low, X = value high
 000770r 2               ValueToDigits:
 000770r 2  85 5B          sta SC_TMP_LO
@@ -2629,7 +2629,7 @@ Current file: Snake.asm
 0007ADr 2  85 52          sta DIGIT_BUF+4
 0007AFr 2  60             rts
 0007B0r 2               
-0007B0r 2               ; UpdateHud — redraw the score digits at row 0, columns 8-12
+0007B0r 2               ; UpdateHud - redraw the score digits at row 0, columns 8-12
 0007B0r 2               UpdateHud:
 0007B0r 2  A5 44          lda SCORE_LO
 0007B2r 2  A6 45          ldx SCORE_HI
@@ -2638,7 +2638,7 @@ Current file: Snake.asm
 0007B9r 2  A2 08          ldx #8
 0007BBr 2  4C rr rr       jmp DrawDigitBuf
 0007BEr 2               
-0007BEr 2               ; DrawDigitBuf — draw the 5 ASCII digits currently in DIGIT_BUF at (row,col)
+0007BEr 2               ; DrawDigitBuf - draw the 5 ASCII digits currently in DIGIT_BUF at (row,col)
 0007BEr 2               ; In: A = row, X = col
 0007BEr 2               DrawDigitBuf:
 0007BEr 2  85 63          sta MSG_ROW
@@ -2658,7 +2658,7 @@ Current file: Snake.asm
 0007D9r 2  D0 E9          bne @loop
 0007DBr 2  60             rts
 0007DCr 2               
-0007DCr 2               ; DrawString — draw a null-terminated string starting at (row,col)
+0007DCr 2               ; DrawString - draw a null-terminated string starting at (row,col)
 0007DCr 2               ; In: A = row, X = col, WORK_PTR/WORK_PTR+1 = string pointer
 0007DCr 2               DrawString:
 0007DCr 2  85 63          sta MSG_ROW
@@ -2678,7 +2678,7 @@ Current file: Snake.asm
 0007F7r 2               @done:
 0007F7r 2  60             rts
 0007F8r 2               
-0007F8r 2               ; ClearRow — blank an entire row
+0007F8r 2               ; ClearRow - blank an entire row
 0007F8r 2               ; In: A = row
 0007F8r 2               ClearRow:
 0007F8r 2  85 63          sta MSG_ROW
@@ -2693,7 +2693,7 @@ Current file: Snake.asm
 000809r 2  D0 F1          bne @loop
 00080Br 2  60             rts
 00080Cr 2               
-00080Cr 2               ; DrawHudLabel — draw the static "SCORE:" label at row 0, column 1
+00080Cr 2               ; DrawHudLabel - draw the static "SCORE:" label at row 0, column 1
 00080Cr 2               DrawHudLabel:
 00080Cr 2  A9 rr          lda #<ScoreLabel
 00080Er 2  85 56          sta WORK_PTR
@@ -2703,7 +2703,7 @@ Current file: Snake.asm
 000816r 2  A2 01          ldx #1
 000818r 2  4C rr rr       jmp DrawString
 00081Br 2               
-00081Br 2               ; DrawGameOverOverlay — draw a highlighted box centered on the board with
+00081Br 2               ; DrawGameOverOverlay - draw a highlighted box centered on the board with
 00081Br 2               ; the final score and, if this round set a new record, a callout for it
 00081Br 2               ; (otherwise the standing high score, for reference).
 00081Br 2               DrawGameOverOverlay:
@@ -2768,7 +2768,7 @@ Current file: Snake.asm
 00088Ar 2  A2 0C          ldx #12
 00088Cr 2  4C rr rr       jmp DrawString
 00088Fr 2               
-00088Fr 2               ; DrawPauseMessage — draw the paused text at row 23
+00088Fr 2               ; DrawPauseMessage - draw the paused text at row 23
 00088Fr 2               DrawPauseMessage:
 00088Fr 2  A9 rr          lda #<PauseMsg
 000891r 2  85 56          sta WORK_PTR
@@ -2829,7 +2829,7 @@ Current file: Snake.asm
 000910r 1               GAME_SPEED_HI = 0
 000910r 1               
 000910r 1               ; =============================================================================
-000910r 1               ;   CartReset — cartridge entry point
+000910r 1               ;   CartReset - cartridge entry point
 000910r 1               ; =============================================================================
 000910r 1               CartReset:
 000910r 1  A2 FF          ldx #$ff
@@ -2912,7 +2912,7 @@ Current file: Snake.asm
 000974r 1  4C rr rr       jmp MainLoop
 000977r 1               
 000977r 1               ; =============================================================================
-000977r 1               ;   IRQ / NMI handlers — cartridge owns the vectors, so it must supply these.
+000977r 1               ;   IRQ / NMI handlers - cartridge owns the vectors, so it must supply these.
 000977r 1               ;   Both just dispatch through the RAM vectors KernalInit already configured
 000977r 1               ;   (default keyboard-scanning IRQ handler, no-op NMI).
 000977r 1               ; =============================================================================
@@ -2924,7 +2924,7 @@ Current file: Snake.asm
 00097Ar 1  6C 04 03       jmp (NMI_PTR)
 00097Dr 1               
 00097Dr 1               ; =============================================================================
-00097Dr 1               ;   CPU Vectors — cart owns $FFFA-$FFFF
+00097Dr 1               ;   CPU Vectors - cart owns $FFFA-$FFFF
 00097Dr 1               ; =============================================================================
 00097Dr 1               
 00097Dr 1               .segment "VECTORS"

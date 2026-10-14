@@ -1,5 +1,5 @@
 ; =============================================================================
-;   zeropage.inc — Snake zero-page variables, RAM arrays, and game constants
+;   zeropage.inc - Snake zero-page variables, RAM arrays, and game constants
 ; =============================================================================
 ;   Zero page $3A-$FF is free for a program that has taken the machine over
 ;   (see SECTION 1 of 6502.inc). A cartridge never runs BASIC/Monitor/XModem,
@@ -54,7 +54,7 @@ SUB_HI          := $5E
 DIGIT_COUNT     := $5F   ; scratch: digit accumulator during conversion
 START_PRESSED   := $60   ; set by PollInput when fire/space is down this poll
 PREV_FIRE       := $61   ; START_PRESSED as of the previous poll (edge detection)
-FIRE_EDGE       := $62   ; set only on the poll fire/space first goes down —
+FIRE_EDGE       := $62   ; set only on the poll fire/space first goes down -
                           ; use this (not START_PRESSED) for state transitions,
                           ; so holding the button doesn't repeatedly re-trigger
                           ; pause/resume/restart every tick it stays held
@@ -82,6 +82,6 @@ KB_FIRE_P1      := $6E   ; unused: DrainKeyboardSplit's P1 fire-key output
 KB_FIRE_P2      := $6F   ; unused: DrainKeyboardSplit's P2 fire-key output
 
 ; --- RAM arrays (outside zero page; a cartridge never uses BASIC/PRG/CF RAM) ---
-SEGMENTS_X      := $0800   ; 256 bytes — ring buffer of segment columns
-SEGMENTS_Y      := $0900   ; 256 bytes — ring buffer of segment rows
-OCCUPANCY       := $0A00   ; 768 bytes — 32x24 grid, row*32+col: 0=empty 1=snake 3=wall
+SEGMENTS_X      := $0800   ; 256 bytes - ring buffer of segment columns
+SEGMENTS_Y      := $0900   ; 256 bytes - ring buffer of segment rows
+OCCUPANCY       := $0A00   ; 768 bytes - 32x24 grid, row*32+col: 0=empty 1=snake 3=wall

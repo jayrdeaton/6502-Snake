@@ -49,7 +49,7 @@ This file is for issues discovered in the 6502 emulator itself, not in this repo
 
 ### 003 - Unloading a cartridge that left the VDP in a custom graphics mode corrupts the following BASIC/Monitor boot screen
 - Bug ID: 003
-- Summary: If a cartridge was running in a TMS9918 graphics mode (e.g. Graphics I) with a custom palette/pattern table, unloading it (or reloading a different cart) and warm-resetting back into BASIC/Monitor renders a corrupted, garbled screen instead of a clean boot — readable text fragments mixed with stray CP437 glyphs, wrong colors/background.
+- Summary: If a cartridge was running in a TMS9918 graphics mode (e.g. Graphics I) with a custom palette/pattern table, unloading it (or reloading a different cart) and warm-resetting back into BASIC/Monitor renders a corrupted, garbled screen instead of a clean boot - readable text fragments mixed with stray CP437 glyphs, wrong colors/background.
 - Emulator version / commit: 2.6.2 (Electron)
 - Platform / environment: macOS, desktop app (also checked against the headless CLI's source, same version)
 - Steps to reproduce:
@@ -58,9 +58,9 @@ This file is for issues discovered in the 6502 emulator itself, not in this repo
   3. In Settings, click "Unload" on the Cart row (or load a different cartridge file over it).
   4. Observe the screen immediately after the resulting reset.
 - Expected behavior: BASIC/Monitor's boot/splash screen renders cleanly regardless of what graphics mode/VRAM state the previous cartridge left behind.
-- Actual behavior: The boot screen renders corrupted — a mix of legible leftover text and garbled characters, often with the wrong backdrop color.
+- Actual behavior: The boot screen renders corrupted - a mix of legible leftover text and garbled characters, often with the wrong backdrop color.
 - Severity: Medium
-- Notes: Root-caused this together in a debugging session (connected live via the Debug Server to the running app while reproducing it). The likely mechanism: `unloadCart()` in `src/renderer/src/stores/emulator.ts` calls `machine.unloadCart()` then `session.reset(false)` — a **warm** reset. `Video.reset(coldStart)` in `src/core/IO/Video.ts` only clears VRAM `if (coldStart)`, so a warm reset leaves the previous cartridge's Graphics I VRAM (custom pattern table, color table, name table) fully intact. BASIC/Monitor's own boot sequence doesn't appear to fully reprogram the VDP back to its expected default state before drawing, so it ends up rendering against stale, wrong-mode VRAM. A workaround that avoids it: use Power Cycle (which does `vram.fill(0)` on cold start) instead of Reset when unloading or swapping cartridges that use custom graphics modes. Possible fixes: have BASIC/Monitor's boot path fully reinitialize the VDP (registers + color table, not just the character set) before drawing anything, regardless of prior state; or have cartridge unload/swap force a cold reset instead of warm.
+- Notes: Root-caused this together in a debugging session (connected live via the Debug Server to the running app while reproducing it). The likely mechanism: `unloadCart()` in `src/renderer/src/stores/emulator.ts` calls `machine.unloadCart()` then `session.reset(false)` - a **warm** reset. `Video.reset(coldStart)` in `src/core/IO/Video.ts` only clears VRAM `if (coldStart)`, so a warm reset leaves the previous cartridge's Graphics I VRAM (custom pattern table, color table, name table) fully intact. BASIC/Monitor's own boot sequence doesn't appear to fully reprogram the VDP back to its expected default state before drawing, so it ends up rendering against stale, wrong-mode VRAM. A workaround that avoids it: use Power Cycle (which does `vram.fill(0)` on cold start) instead of Reset when unloading or swapping cartridges that use custom graphics modes. Possible fixes: have BASIC/Monitor's boot path fully reinitialize the VDP (registers + color table, not just the character set) before drawing anything, regardless of prior state; or have cartridge unload/swap force a cold reset instead of warm.
 
 ### 004 - Joy key selection does not persist across emulator restart
 - Bug ID: 004
